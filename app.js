@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.3';
+const VERSION = '2.4';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -303,15 +303,27 @@ function viewAgenda(){
     <div class="sec" id="agDetail"><span class="lbl">${esc(dlabel)}</span>${day.length ? day.map(evCard).join('') : '<div class="empty">Rien à l\'agenda ce jour-là.</div>'}</div>`;
 }
 const camSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
+function fmtSize(n){ return n>=1048576 ? (n/1048576).toFixed(1).replace('.',',')+' Mo' : Math.max(1,Math.round(n/1024))+' Ko'; }
+function fileBadge(f){
+  if(f.dossier) return '<span class="fx dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>';
+  const m = f.mime || '', ext = (f.nom.split('.').pop() || '').toLowerCase();
+  const k = /pdf/.test(m) ? ['PDF','pdf'] : /sheet|excel/.test(m) || /^xls/.test(ext) ? ['XLS','xls'] : /^image\//.test(m) ? ['IMG','img'] : /word/.test(m) ? ['DOC','doc'] : [(ext||'FIC').slice(0,3).toUpperCase(),'oth'];
+  return `<span class="fx ${k[1]}">${esc(k[0])}</span>`;
+}
 function viewProjet(){
   const p = proj(S.pid); if(!p) return '';
-  const tabs = [['check','Liste'],['photos','Photos'],['journal','Journal']];
+  const tabs = [['check','Liste'],['files','Fichiers'],['photos','Photos'],['journal','Journal']];
   const phs = photosOf(p.id), loaded = !!S.photos[p.id];
   let body = '';
   if(S.sub==='check'){
     const d = p.checklist.filter(i=>i.done).length;
-    body = (p.checklist.length ? `<div class="eyebrow" style="margin-bottom:4px">${d} sur ${p.checklist.length} complété${d>1?'s':''}</div><div class="card">`+p.checklist.map(i=>`<label class="ck${i.done?' done':''}"><input type="checkbox" data-act="ck" data-id="${esc(i.id)}"${i.done?' checked':''}><span><b>${esc(i.text)}</b>${i.done && i.completedBy ? `<small>${esc(i.completedBy)}${i.completedAt ? ', '+hm(new Date(i.completedAt)) : ''}</small>` : ''}</span></label>`).join('')+'</div>' : '<div class="empty">Aucun item pour ce chantier.</div>')
+    body = (p.checklist.length ? `<div class="eyebrow" style="margin-bottom:4px">${d} sur ${p.checklist.length} complété${d>1?'s':''}</div><div class="card">`+p.checklist.map(i=>`<label class="ck${i.done?' done':''}"><input type="checkbox" data-act="ck" data-id="${esc(i.id)}"${i.done?' checked':''}><span><b>${esc(i.text)}</b>${(i.addedBy || (i.done && i.completedBy)) ? `<small>${[i.addedBy ? 'Ajouté par '+esc(i.addedBy) : '', i.done && i.completedBy ? 'Complété par '+esc(i.completedBy)+(i.completedAt ? ', '+hm(new Date(i.completedAt)) : '') : ''].filter(Boolean).join(' · ')}</small>` : ''}</span></label>`).join('')+'</div>' : '<div class="empty">Aucun item pour ce chantier.</div>')
       +`<div class="addrow"><input id="ckIn" placeholder="Ajouter un item" value="${esc(S.ckDraft)}"><button class="btn" data-act="ckadd" aria-label="Ajouter">+</button></div>`;
+  } else if(S.sub==='files'){
+    const fl = p.fichiers || [];
+    body = (p.driveUrl ? `<a class="btn drive" href="${esc(p.driveUrl)}" target="_blank" rel="noopener">Ouvrir le dossier dans Google Drive</a>` : '')
+      + (fl.length ? '<div class="card files">'+fl.map(f=>`<a class="frow" href="${esc(f.url)}" target="_blank" rel="noopener">${fileBadge(f)}<span class="fn"><b>${esc(f.nom)}</b><small>${[f.modifie ? new Date(f.modifie).toLocaleDateString('fr-CA',{day:'numeric',month:'short',year:'numeric'}) : '', f.taille ? fmtSize(f.taille) : ''].filter(Boolean).join(' · ')}</small></span><span class="go">›</span></a>`).join('')+'</div>' : '<div class="empty">Aucun fichier pour ce projet.</div>')
+      + '<p class="note">Les fichiers s\'ouvrent dans Google Drive.</p>';
   } else if(S.sub==='photos'){
     const gal = phs.filter(f=>!f.journalId);
     body = `<button class="cam" data-act="shoot">${camSvg}Prendre une photo</button>`
@@ -330,6 +342,7 @@ function viewProjet(){
     <h1 class="big" style="font-size:32px">${esc(p.nomDossier)}</h1>
     <div class="meta" style="margin-top:6px">${(()=>{ const ev = nextEv(p.id); return ev ? `<span class="chip"><span class="eqdot ${eqCls(ev)}" style="margin-right:6px"></span>${esc(rangeLbl(ev))}</span>` : '<span class="chip warn">Pas à l\'agenda</span>'; })()}</div>
     ${mapLink(p.adresse)}
+    ${p.notes ? `<div class="pnote"><span class="lbl">Notes</span><p>${esc(p.notes)}</p></div>` : ''}
     <div class="seg">${tabs.map(t=>`<button class="${S.sub===t[0]?'on':''}" data-act="sub" data-sub="${t[0]}">${t[1]}</button>`).join('')}</div>${body}`;
 }
 function viewMoi(){
@@ -623,7 +636,7 @@ document.addEventListener('click', async e => {
   if(a==='ckadd' && p){
     const v = S.ckDraft.trim(); if(!v) return;
     const id = 'c'+uid();
-    p.checklist.push({id,text:v,done:false,completedBy:null,completedAt:null}); S.ckDraft = ''; render();
+    p.checklist.push({id,text:v,done:false,addedBy:S.user.nom,completedBy:null,completedAt:null}); S.ckDraft = ''; render();
     await queue('terrain_checklist_add',{p_projet:p.id,p_id:id,p_texte:v});
     return;
   }
