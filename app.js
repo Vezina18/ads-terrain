@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.0';
+const VERSION = '2.1';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -107,6 +107,14 @@ const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',proj
 const proj = id => S.projets.find(p=>p.id===id);
 const projName = id => { const p = proj(id); return p ? p.nomDossier : 'Sans projet'; };
 const nowMs = () => Date.now() + S.skew;
+const pauseTot = (o,at) => (o.pauseMs||0) + (o.pauseStart ? Math.max(0,at-o.pauseStart) : 0);
+const workMs = (o,at) => Math.max(0, at - o.start - pauseTot(o,at));
+function segment(o,f,pause,notes){
+  const d0 = new Date(o.start), d1 = new Date(f);
+  return {id:'h'+uid(),date:iso(d0),projetId:o.projetId,debut:hm(d0),fin:hm(d1),pause,
+    heures:calcH(hm(d0),hm(d1),pause) + (f-o.start>=86400000 ? Math.floor((f-o.start)/86400000)*24 : 0),notes:notes||null,modifie:false,manuel:false};
+}
+const fmtClock = ms => { const s = Math.max(0,Math.floor(ms/1000)); return pad(Math.floor(s/3600))+':'+pad(Math.floor(s%3600/60))+':'+pad(s%60); };
 
 function persist(){
   if(!S.user) return;
@@ -204,7 +212,7 @@ function stale(o){ return (nowMs()-o.start) > STALE_H*3600000 || iso(new Date(o.
 function todayWorked(){
   const t = iso(new Date());
   let h = S.heures.filter(x=>x.date===t).reduce((a,x)=>a+Number(x.heures),0);
-  if(S.open) h += Math.max(0,(nowMs()-S.open.start)/3600000);
+  if(S.open) h += workMs(S.open,nowMs())/3600000;
   return h;
 }
 function tags(h){
@@ -222,30 +230,30 @@ function viewPunch(){
   const todays = S.heures.filter(h=>h.date===iso(first));
   const list = todays.length ? '<div class="card">'+todays.map(h=>heureRow(h,false)).join('')+'</div>' : '<div class="empty">Aucun punch terminé aujourd\'hui.</div>';
   if(S.open){
-    const p = proj(S.open.projetId);
-    const warn = stale(S.open) ? `<div class="alert"><b>Punch ouvert depuis ${fmtDur((nowMs()-S.open.start)/3600000)}</b>As-tu oublié de punch out? Appuie sur Punch OUT et mets l'heure à laquelle tu as vraiment fini.</div>` : '';
+    const o = S.open, p = proj(o.projetId), paused = !!o.pauseStart;
+    const warn = stale(o) ? `<div class="alert"><b>Punch ouvert depuis ${fmtDur((nowMs()-o.start)/3600000)}</b>As-tu oublié de punch out? Appuie sur Punch OUT et mets l'heure à laquelle tu as vraiment fini.</div>` : '';
     return `<p class="eyebrow">${longDate(first)}</p>${warn}
-    <div class="live">
-      <span class="pulse">Au travail</span>
+    <div class="live${paused?' paused':''}">
+      <span class="pulse">${paused ? 'En pause' : 'Au travail'}</span>
       <div class="clock" id="clock">00:00:00</div>
+      <div class="since num" id="sub"></div>
       <div class="proj">${esc(p ? p.nomDossier : '')}</div>
-      <div class="since num">Depuis ${hm(new Date(S.open.start))}${iso(new Date(S.open.start))!==iso(first) ? ' ('+esc(dayLabel(iso(new Date(S.open.start))).toLowerCase())+')' : ''}</div>
+      <div class="since num">Punch depuis ${hm(new Date(o.start))}${iso(new Date(o.start))!==iso(first) ? ' ('+esc(dayLabel(iso(new Date(o.start))).toLowerCase())+')' : ''}</div>
       ${p ? mapLink(p.adresse) : ''}
       ${p ? `<button class="linkbtn" data-act="open" data-id="${esc(p.id)}">Voir le projet et ajouter une photo</button>` : ''}
     </div>
     <div class="sec"><span class="lbl">Aujourd'hui</span>${list}</div>
-    <div class="dock"><button class="punch stop" data-act="out">Punch OUT</button></div>`;
+    <div class="dock">
+      ${paused
+        ? `<button class="punch pause" data-act="pauseend">Terminer la pause</button><button class="btn ghost wide" data-act="out">Punch OUT</button>`
+        : `<div class="two"><button class="btn ghost big2" data-act="pausego">Pause</button><button class="btn ghost big2" data-act="xfer"${S.projets.length>1?'':' disabled'}>Changer de projet</button></div><button class="punch stop" data-act="out">Punch OUT</button>`}
+    </div>`;
   }
-  const act = S.projets;
-  if((!S.pick || !proj(S.pick)) && act.length) S.pick = act[0].id;
-  const choix = act.length
-    ? `<div class="plist">${act.map(p=>`<button class="pick${p.id===S.pick?' on':''}" data-act="pick" data-id="${esc(p.id)}"><span class="dot"></span><span><b>${esc(p.nomDossier)}</b><small>${esc(p.adresse || '')}</small></span></button>`).join('')}</div>`
-    : '<div class="empty">Aucun projet actif pour l\'instant. Demande à Francis d\'en ajouter.</div>';
   return `<p class="eyebrow">${longDate(first)}</p>
     <h1 class="big">Bonjour, ${esc((S.user.nom || '').split(' ')[0])}</h1>
-    <div class="sec"><span class="lbl">Projet du jour</span>${choix}</div>
     <div class="sec"><span class="lbl">Aujourd'hui <span class="num" style="float:right;text-transform:none;letter-spacing:0">${fmtDur(todayWorked())}</span></span>${list}</div>
-    <div class="dock"><button class="punch go" data-act="in"${act.length?'':' disabled'}>Punch IN</button></div>`;
+    ${S.projets.length ? '' : '<div class="empty">Aucun projet actif pour l\'instant. Demande à Francis d\'en ajouter.</div>'}
+    <div class="dock"><button class="punch go" data-act="in"${S.projets.length?'':' disabled'}>Punch IN</button></div>`;
 }
 function viewProjets(){
   if(!S.projets.length) return '<h1 class="big" style="margin-bottom:14px">Mes projets</h1><div class="empty">Aucun projet actif pour l\'instant.</div>';
@@ -292,7 +300,7 @@ function viewMoi(){
   const days = [];
   for(let i=0;i<7;i++){ const d = new Date(mon); d.setDate(mon.getDate()+i); days.push(iso(d)); }
   const wk = S.heures.filter(h=>days.includes(h.date));
-  const tot = wk.reduce((a,h)=>a+Number(h.heures),0) + (S.open && S.wk===0 ? Math.max(0,(nowMs()-S.open.start)/3600000) : 0);
+  const tot = wk.reduce((a,h)=>a+Number(h.heures),0) + (S.open && S.wk===0 ? workMs(S.open,nowMs())/3600000 : 0);
   const limit = iso(new Date(Date.now()-EDIT_DAYS*86400000));
   const blocks = days.slice().reverse().map(ds=>{
     const hs = wk.filter(h=>h.date===ds); if(!hs.length) return '';
@@ -336,12 +344,20 @@ function softRender(){
 }
 document.addEventListener('focusout', () => { if(S.dirty) setTimeout(()=>{ const a = document.activeElement; if(!(a && a.closest && a.closest('#view') && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) render(); },120); });
 
+function sheetPick(mode){
+  const list = mode==='xfer' ? S.projets.filter(p=>!S.open || p.id!==S.open.projetId) : S.projets;
+  return `<div class="veil" data-act="sheetclose"><div class="sheet" role="dialog" aria-label="Choisir le projet">
+    <h2>${mode==='xfer' ? 'Changer de projet' : 'Sur quel projet?'}</h2>
+    ${mode==='xfer' ? '<p class="note" style="margin:0">Ton temps sur le projet actuel est enregistré, et un nouveau punch commence maintenant sur celui que tu choisis.</p>' : ''}
+    <div class="plist">${list.map(p=>`<button class="pick" data-act="${mode==='xfer'?'xferp':'startp'}" data-id="${esc(p.id)}"><span><b>${esc(p.nomDossier)}</b><small>${esc(p.adresse || '')}</small></span></button>`).join('') || '<div class="empty">Aucun autre projet actif.</div>'}</div>
+    <button class="btn ghost" data-act="sheetclose">Annuler</button></div></div>`;
+}
 function sheetOut(){
   const mins = outMins();
   return `<div class="veil" data-act="sheetclose"><div class="sheet" role="dialog" aria-label="Terminer le punch">
     <h2>Terminer le punch</h2>
     <div class="field"><label for="endIn">Heure de fin</label><input id="endIn" class="ctl" type="time" value="${esc(S.endT)}"></div>
-    <div><span class="lbl">Pause prise</span><div class="chips" style="margin-top:8px">${[0,15,30,45,60].map(m=>`<button class="${S.pause===m?'on':''}" data-act="pause" data-m="${m}">${m} min</button>`).join('')}</div></div>
+    <div class="field"><label for="pauseIn">Pause prise (minutes)</label><input id="pauseIn" class="ctl" type="number" inputmode="numeric" min="0" step="5" value="${S.pause}"></div>
     <div class="field"><label for="noteIn">Note (facultatif)</label><input id="noteIn" class="ctl" value="${esc(S.note)}" placeholder="Ex.: pluie en après-midi"></div>
     <div class="sum"><span>Temps travaillé</span><span class="num" id="outSum">${mins == null ? '--' : fmtDur(mins/60)}</span></div>
     <button class="punch stop" style="height:64px;font-size:28px" data-act="outok">Confirmer</button>
@@ -371,13 +387,16 @@ function renderOverlay(force){
     o.innerHTML = `<div class="lb" data-act="lbclose"><img src="${f.src || f.mini}" alt="Photo agrandie"><div class="lbtools">${can ? (f.confirm ? '<button class="btn danger" data-act="phdel">Confirmer la suppression</button>' : '<button class="btn ghost" data-act="phdelask">Supprimer cette photo</button>') : ''}<button class="btn ghost" data-act="lbclose">Fermer</button></div></div>`;
     return;
   }
+  if((S.sheet === 'start' || S.sheet === 'xfer') && (S.sheet==='start' ? !S.open : S.open)){ if(force || !o.firstChild) o.innerHTML = sheetPick(S.sheet); return; }
   if(S.sheet === 'out' && S.open){ if(force || !o.firstChild) o.innerHTML = sheetOut(); return; }
   if(S.sheet === 'hs' && S.hs){ if(force || !o.firstChild) o.innerHTML = sheetHs(); return; }
   o.innerHTML = '';
 }
 function tick(){
-  const c = $('#clock');
-  if(c && S.open){ const s = Math.max(0,Math.floor((nowMs()-S.open.start)/1000)); c.textContent = pad(Math.floor(s/3600))+':'+pad(Math.floor(s%3600/60))+':'+pad(s%60); }
+  const c = $('#clock'); if(!c || !S.open) return;
+  const o = S.open, n = nowMs();
+  if(o.pauseStart){ c.textContent = fmtClock(n-o.pauseStart); const el = $('#sub'); if(el) el.textContent = 'Temps travaillé : '+fmtClock(workMs(o,n)); }
+  else { c.textContent = fmtClock(workMs(o,n)); const el = $('#sub'); if(el) el.textContent = pauseTot(o,n) > 0 ? 'Pauses : '+fmtDur(pauseTot(o,n)/3600000) : 'Temps travaillé'; }
 }
 setInterval(tick,1000);
 function updSync(){
@@ -433,6 +452,7 @@ document.addEventListener('input', e => {
   if(id==='jIn') S.jDraft = e.target.value;
   if(id==='ckIn') S.ckDraft = e.target.value;
   if(id==='noteIn') S.note = e.target.value;
+  if(id==='pauseIn'){ S.pause = Math.max(0,parseInt(e.target.value,10)||0); const m = outMins(); const el = $('#outSum'); if(el) el.textContent = m == null ? '--' : fmtDur(m/60); }
   if(id==='endIn'){ S.endT = e.target.value; const m = outMins(); const el = $('#outSum'); if(el) el.textContent = m == null ? '--' : fmtDur(m/60); }
   if(S.hs && /^hs[PDABN]$/.test(id)){
     const k = {hsP:'projet',hsD:'jour',hsA:'debut',hsB:'fin',hsN:'notes'}[id]; S.hs[k] = e.target.value;
@@ -474,23 +494,42 @@ document.addEventListener('click', async e => {
   if(a==='tab'){ S.tab=t.dataset.tab; S.pid=null; render(); $('#view').scrollTop=0; return; }
   if(a==='wk'){ S.wk = Math.max(-2,Math.min(0,S.wk+Number(t.dataset.d))); render(); return; }
   if(a==='pick'){ S.pick=t.dataset.id; render(); return; }
-  if(a==='in'){
-    if(!S.pick || S.open) return;
-    S.open = {projetId:S.pick,start:nowMs()}; render();
-    await queue('terrain_punch_in',{p_projet:S.pick,p_at:S.open.start}); return;
+  if(a==='in'){ if(S.open || !S.projets.length) return; S.sheet='start'; renderOverlay(true); return; }
+  if(a==='startp'){
+    if(S.open) return; const id = t.dataset.id;
+    S.pick = id; S.open = {projetId:id,start:nowMs(),pauseMs:0,pauseStart:null}; S.sheet = false; renderOverlay(true); render();
+    await queue('terrain_punch_in',{p_projet:id,p_at:S.open.start}); return;
+  }
+  if(a==='pausego'){
+    if(!S.open || S.open.pauseStart) return; S.open.pauseStart = nowMs(); persist(); render();
+    await queue('terrain_punch_pause',{p_at:S.open.pauseStart}); return;
+  }
+  if(a==='pauseend'){
+    if(!S.open || !S.open.pauseStart) return; const n = nowMs();
+    S.open.pauseMs = (S.open.pauseMs||0) + Math.max(0,n-S.open.pauseStart); S.open.pauseStart = null; persist(); render();
+    await queue('terrain_punch_resume',{p_at:n}); return;
+  }
+  if(a==='xfer'){ if(!S.open || S.open.pauseStart) return; S.sheet='xfer'; renderOverlay(true); return; }
+  if(a==='xferp'){
+    if(!S.open) return; const o = S.open, n = nowMs(), id = t.dataset.id;
+    if(id === o.projetId) return;
+    const h = segment(o,n,Math.round(pauseTot(o,n)/60000),null);
+    S.heures.push(h); S.pick = id; S.open = {projetId:id,start:n,pauseMs:0,pauseStart:null}; S.sheet=false; renderOverlay(true); render();
+    toast('Projet changé. '+fmtDur(Number(h.heures))+' enregistrées sur le précédent.');
+    await queue('terrain_punch_out',{p_id:h.id,p_pause:h.pause,p_notes:'',p_at:n});
+    await queue('terrain_punch_in',{p_projet:id,p_at:n});
+    return;
   }
   if(a==='out'){
-    S.sheet='out'; S.pause=30; S.note=''; S.endT = S.open && stale(S.open) ? '' : hm(new Date(nowMs())); renderOverlay(true); return;
+    const n = nowMs(); S.sheet='out'; S.pause = S.open ? Math.round(pauseTot(S.open,n)/60000) : 0; S.note=''; S.endT = S.open && stale(S.open) ? '' : hm(new Date(n)); renderOverlay(true); return;
   }
-  if(a==='pause'){ S.pause=Number(t.dataset.m); renderOverlay(true); return; }
   if(a==='outok'){
     if(!S.open) return;
     let f = endMs(S.endT);
     if(f == null){ toast('Entre l\'heure de fin.'); return; }
     if(f < S.open.start - 59999){ toast('L\'heure de fin doit être après le début.'); return; }
     f = Math.max(f, S.open.start);
-    const o = S.open, d0 = new Date(o.start), d1 = new Date(f);
-    const h = {id:'h'+uid(),date:iso(d0),projetId:o.projetId,debut:hm(d0),fin:hm(d1),pause:S.pause,heures:calcH(hm(d0),hm(d1),S.pause) + (f-o.start>=86400000 ? Math.floor((f-o.start)/86400000)*24 : 0),notes:S.note.trim()||null,modifie:false,manuel:false};
+    const h = segment(S.open,f,S.pause,S.note.trim()||null);
     S.heures.push(h); S.open = null; S.sheet = false; renderOverlay(true); render();
     toast('Punch terminé : '+fmtDur(Number(h.heures)));
     await queue('terrain_punch_out',{p_id:h.id,p_pause:S.pause,p_notes:S.note,p_at:f});
