@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.2';
+const VERSION = '2.3';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -101,7 +101,7 @@ const pending = () => mine().length;
 const hasOp = (fn,key,val) => mine().some(o=>o.fn===fn && o.args[key]===val);
 
 /* ---------- État ---------- */
-const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],agenda:[],heures:[],open:null,skew:0,pid:null,sub:'check',
+const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],agenda:[],agM:iso(new Date()).slice(0,7),agDay:iso(new Date()),heures:[],open:null,skew:0,pid:null,sub:'check',
   pick:null,jDraft:'',jPhoto:null,ckDraft:'',sheet:false,pause:30,note:'',endT:'',lb:null,photos:{},photoFor:'gallery',wk:0,hs:null,
   loading:true,bootErr:null,syncing:false,dirty:false,reg:null};
 const proj = id => S.projets.find(p=>p.id===id);
@@ -284,12 +284,23 @@ function evCard(e){
   return e.projetId && proj(e.projetId) ? `<button class="evc" data-act="open" data-id="${esc(e.projetId)}">${body}</button>` : `<div class="evc">${body}</div>`;
 }
 function viewAgenda(){
-  const t = todayS();
-  const cur = S.agenda.filter(e=>e.debut<=t && t<e.fin), next = S.agenda.filter(e=>e.debut>t);
-  const sec = (title,list,empty) => `<div class="sec"><span class="lbl">${title}</span>${list.length ? list.map(evCard).join('') : '<div class="empty">'+empty+'</div>'}</div>`;
-  return `<h1 class="big" style="margin-bottom:2px">Agenda</h1><p class="eyebrow">Les chantiers des équipes</p>`
-    + sec('En cours',cur,'Rien à l\'agenda aujourd\'hui.')
-    + sec('À venir',next,'Rien de prévu pour l\'instant.');
+  const t = todayS(), Y = +S.agM.slice(0,4), M = +S.agM.slice(5,7);
+  const first = new Date(Y,M-1,1), dow = (first.getDay()+6)%7, dim = new Date(Y,M,0).getDate(), rows = Math.ceil((dow+dim)/7);
+  const evsOn = ds => S.agenda.filter(e=>e.debut<=ds && ds<e.fin).sort((a,b)=>a.debut<b.debut?-1:a.debut>b.debut?1:a.id<b.id?-1:1);
+  let cells = '';
+  for(let i=0;i<rows*7;i++){
+    const d = new Date(Y,M-1,1-dow+i), ds = iso(d), out = d.getMonth()!==M-1, evs = evsOn(ds);
+    const bars = evs.slice(0,3).map(e=>`<i class="bar ${eqCls(e)}">${(ds===e.debut || i%7===0) ? esc(e.titre.replace(/^\d{5}\s*-\s*/,'')) : '&nbsp;'}</i>`).join('') + (evs.length>3 ? `<i class="more">+${evs.length-3}</i>` : '');
+    cells += `<button class="dc${out?' out':''}${ds===t?' today':''}${ds===S.agDay?' sel':''}" data-act="agday" data-d="${ds}" aria-label="${esc(ds)}"><span class="dn">${d.getDate()}</span>${bars}</button>`;
+  }
+  const mname = cap(first.toLocaleDateString('fr-CA',{month:'long',year:'numeric'}));
+  const day = evsOn(S.agDay);
+  const dlabel = cap(new Date(S.agDay+'T12:00:00').toLocaleDateString('fr-CA',{weekday:'long',day:'numeric',month:'long'}));
+  return `<div class="agh"><button class="navb" data-act="agnav" data-d="-1" aria-label="Mois précédent">‹</button><h1 class="big" style="font-size:24px;margin:0;text-align:center">${esc(mname)}</h1><button class="navb" data-act="agnav" data-d="1" aria-label="Mois suivant">›</button></div>
+    <div class="aglg"><span><i class="eqdot eq1"></i> Équipe 1</span><span><i class="eqdot eq2"></i> Équipe 2</span><button class="linkbtn" style="margin:0;height:34px" data-act="agtoday">Aujourd'hui</button></div>
+    <div class="cal head">${['L','M','M','J','V','S','D'].map(x=>`<span>${x}</span>`).join('')}</div>
+    <div class="cal">${cells}</div>
+    <div class="sec" id="agDetail"><span class="lbl">${esc(dlabel)}</span>${day.length ? day.map(evCard).join('') : '<div class="empty">Rien à l\'agenda ce jour-là.</div>'}</div>`;
 }
 const camSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 function viewProjet(){
@@ -520,6 +531,9 @@ document.addEventListener('click', async e => {
   }
   if(a==='tab'){ S.tab=t.dataset.tab; S.pid=null; render(); $('#view').scrollTop=0; return; }
   if(a==='wk'){ S.wk = Math.max(-2,Math.min(0,S.wk+Number(t.dataset.d))); render(); return; }
+  if(a==='agday'){ S.agDay = t.dataset.d; render(); const el = $('#agDetail'); if(el) el.scrollIntoView({behavior:'smooth',block:'end'}); return; }
+  if(a==='agnav'){ const d = new Date(+S.agM.slice(0,4), +S.agM.slice(5,7)-1+Number(t.dataset.d), 1); S.agM = iso(d).slice(0,7); S.agDay = iso(d); render(); return; }
+  if(a==='agtoday'){ S.agM = todayS().slice(0,7); S.agDay = todayS(); render(); return; }
   if(a==='pick'){ S.pick=t.dataset.id; render(); return; }
   if(a==='in'){ if(S.open || !S.projets.length) return; S.sheet='start'; renderOverlay(true); return; }
   if(a==='startp'){
