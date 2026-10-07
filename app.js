@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.1';
+const VERSION = '2.2';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -101,7 +101,7 @@ const pending = () => mine().length;
 const hasOp = (fn,key,val) => mine().some(o=>o.fn===fn && o.args[key]===val);
 
 /* ---------- État ---------- */
-const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],heures:[],open:null,skew:0,pid:null,sub:'check',
+const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],agenda:[],heures:[],open:null,skew:0,pid:null,sub:'check',
   pick:null,jDraft:'',jPhoto:null,ckDraft:'',sheet:false,pause:30,note:'',endT:'',lb:null,photos:{},photoFor:'gallery',wk:0,hs:null,
   loading:true,bootErr:null,syncing:false,dirty:false,reg:null};
 const proj = id => S.projets.find(p=>p.id===id);
@@ -118,7 +118,7 @@ const fmtClock = ms => { const s = Math.max(0,Math.floor(ms/1000)); return pad(M
 
 function persist(){
   if(!S.user) return;
-  lsSet(SNAP_KEY, JSON.stringify({user:S.user,projets:S.projets,heures:S.heures,open:S.open,skew:S.skew}));
+  lsSet(SNAP_KEY, JSON.stringify({user:S.user,projets:S.projets,agenda:S.agenda,heures:S.heures,open:S.open,skew:S.skew}));
 }
 function readSnap(){
   const raw = lsGet(SNAP_KEY); if(!raw) return null;
@@ -126,7 +126,7 @@ function readSnap(){
 }
 async function loadAll(){
   const d = await rpc('terrain_charger',{p_token:S.token});
-  S.user = d.employe; S.projets = d.projets || []; S.heures = d.heures || []; S.open = d.punch || null;
+  S.user = d.employe; S.projets = d.projets || []; S.agenda = d.agenda || []; S.heures = d.heures || []; S.open = d.punch || null;
   S.skew = d.now ? d.now - Date.now() : 0;
   if(S.pid && !proj(S.pid)) S.pid = null;
   persist();
@@ -257,12 +257,39 @@ function viewPunch(){
 }
 function viewProjets(){
   if(!S.projets.length) return '<h1 class="big" style="margin-bottom:14px">Mes projets</h1><div class="empty">Aucun projet actif pour l\'instant.</div>';
-  return `<h1 class="big" style="margin-bottom:14px">Mes projets</h1>`+S.projets.map(p=>{
+  const list = S.projets.map(p=>({p,ev:nextEv(p.id)})).sort((x,y)=> x.ev&&y.ev ? (x.ev.debut<y.ev.debut?-1:x.ev.debut>y.ev.debut?1:0) : x.ev ? -1 : y.ev ? 1 : x.p.nomDossier.localeCompare(y.p.nomDossier));
+  return `<h1 class="big" style="margin-bottom:14px">Mes projets</h1>`+list.map(({p,ev})=>{
     const d = p.checklist.filter(i=>i.done).length;
     const n = nbPhotos(p);
     return `<button class="pcard" data-act="open" data-id="${esc(p.id)}"><h3>${esc(p.nomDossier)}</h3><div class="addr">${esc(p.adresse || '')}</div>
-    <div class="meta"><span class="chip${p.status==='En cours'?'':' warn'}">${esc(p.status)}</span><span>Liste ${d}/${p.checklist.length}</span><span>${n} photo${n>1?'s':''}</span></div></button>`;
+    <div class="meta">${ev ? `<span class="chip"><span class="eqdot ${eqCls(ev)}" style="margin-right:6px"></span>${esc(rangeLbl(ev))}</span>` : '<span class="chip warn">Pas à l\'agenda</span>'}<span>Liste ${d}/${p.checklist.length}</span><span>${n} photo${n>1?'s':''}</span></div></button>`;
   }).join('');
+}
+/* ---------- Agenda ---------- */
+const addDays = (ds,n) => iso(new Date(new Date(ds+'T12:00:00').getTime()+n*86400000));
+const todayS = () => iso(new Date());
+function rangeLbl(e){
+  const a = new Date(e.debut+'T12:00:00'), b = new Date(addDays(e.fin,-1)+'T12:00:00');
+  const f = (d,o) => d.toLocaleDateString('fr-CA',o);
+  if(e.debut === addDays(e.fin,-1)) return cap(f(a,{weekday:'long',day:'numeric',month:'short'}));
+  const sameM = a.getMonth()===b.getMonth();
+  return cap(f(a,{weekday:'short',day:'numeric',month:sameM?undefined:'short'}))+' au '+f(b,{weekday:'short',day:'numeric',month:'short'});
+}
+const eqName = e => e.equipe === 'equipe2' ? 'Équipe 2' : e.equipe === 'equipe1' ? 'Équipe 1' : (e.equipe || '');
+const eqCls = e => e.equipe === 'equipe2' ? 'eq2' : 'eq1';
+function nextEv(pid){ const t = todayS(); return S.agenda.filter(e=>e.projetId===pid && e.fin > t).sort((a,b)=>a.debut<b.debut?-1:1)[0] || null; }
+function evCard(e){
+  const t = todayS(), now = e.debut <= t && t < e.fin;
+  const body = `<span class="eqdot ${eqCls(e)}"></span><span class="evt"><b>${esc(e.titre)}</b><small>${esc(rangeLbl(e))} · ${esc(eqName(e))}${now ? ' · <i class="now">en cours</i>' : ''}</small></span>${e.projetId && proj(e.projetId) ? '<span class="go">›</span>' : ''}`;
+  return e.projetId && proj(e.projetId) ? `<button class="evc" data-act="open" data-id="${esc(e.projetId)}">${body}</button>` : `<div class="evc">${body}</div>`;
+}
+function viewAgenda(){
+  const t = todayS();
+  const cur = S.agenda.filter(e=>e.debut<=t && t<e.fin), next = S.agenda.filter(e=>e.debut>t);
+  const sec = (title,list,empty) => `<div class="sec"><span class="lbl">${title}</span>${list.length ? list.map(evCard).join('') : '<div class="empty">'+empty+'</div>'}</div>`;
+  return `<h1 class="big" style="margin-bottom:2px">Agenda</h1><p class="eyebrow">Les chantiers des équipes</p>`
+    + sec('En cours',cur,'Rien à l\'agenda aujourd\'hui.')
+    + sec('À venir',next,'Rien de prévu pour l\'instant.');
 }
 const camSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
 function viewProjet(){
@@ -290,7 +317,7 @@ function viewProjet(){
   }
   return `<button class="back" data-act="back">‹ Projets</button>
     <h1 class="big" style="font-size:32px">${esc(p.nomDossier)}</h1>
-    <div class="meta" style="margin-top:6px"><span class="chip${p.status==='En cours'?'':' warn'}">${esc(p.status)}</span></div>
+    <div class="meta" style="margin-top:6px">${(()=>{ const ev = nextEv(p.id); return ev ? `<span class="chip"><span class="eqdot ${eqCls(ev)}" style="margin-right:6px"></span>${esc(rangeLbl(ev))}</span>` : '<span class="chip warn">Pas à l\'agenda</span>'; })()}</div>
     ${mapLink(p.adresse)}
     <div class="seg">${tabs.map(t=>`<button class="${S.sub===t[0]?'on':''}" data-act="sub" data-sub="${t[0]}">${t[1]}</button>`).join('')}</div>${body}`;
 }
@@ -332,7 +359,7 @@ function render(){
   $('#roleLbl').textContent = S.user.role === 'admin' ? 'Administrateur' : 'Employé';
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.tab===S.tab));
   const v = $('#view'); const st = v.scrollTop;
-  v.innerHTML = S.pid ? viewProjet() : S.tab==='punch' ? viewPunch() : S.tab==='projets' ? viewProjets() : viewMoi();
+  v.innerHTML = S.pid ? viewProjet() : S.tab==='punch' ? viewPunch() : S.tab==='agenda' ? viewAgenda() : S.tab==='projets' ? viewProjets() : viewMoi();
   v.scrollTop = st;
   renderOverlay(false); tick(); updSync();
 }
@@ -627,7 +654,7 @@ async function boot(){
   if(!S.token){ S.loading = false; render(); return; }
   const snap = readSnap();
   if(snap){
-    S.user = snap.user; S.projets = snap.projets || []; S.heures = snap.heures || []; S.open = snap.open || null; S.skew = snap.skew || 0;
+    S.user = snap.user; S.projets = snap.projets || []; S.agenda = snap.agenda || []; S.heures = snap.heures || []; S.open = snap.open || null; S.skew = snap.skew || 0;
     S.loading = false; render(); refresh(); return;
   }
   try{ await loadAll(); S.loading = false; render(); flush(); }

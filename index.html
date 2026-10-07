@@ -75,7 +75,7 @@ button{cursor:pointer}
 .sync i{width:8px;height:8px;border-radius:50%;background:var(--go)}
 .sync.off i{background:var(--warn)}
 #view{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-bottom:12px;-webkit-overflow-scrolling:touch}
-.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding-block:8px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--bg)}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding-block:8px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--bg)}
 .tab{border:none;background:none;border-radius:12px;padding:8px 4px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;font-weight:600;color:var(--muted)}
 .tab svg{width:24px;height:24px}
 .tab.on{background:var(--tint);color:var(--accent)}
@@ -212,6 +212,12 @@ button.row:last-child{border-bottom:none}
 .btn.big2{height:60px;font-size:18px}
 .btn.wide{width:100%}
 .pick{width:100%}
+.eqdot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
+.eqdot.eq1{background:#3b82f6}.eqdot.eq2{background:#f97316}
+.evc{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;min-height:64px}
+.evc .evt{flex:1;min-width:0}.evc .evt b{display:block;font-size:17px}.evc small{color:var(--muted);font-size:13px}
+.evc .go{font-size:24px;color:var(--muted)}.evc .now{font-style:normal;font-weight:700;color:var(--go)}
+.tab{font-size:11px}
 </style>
 </head>
 <body>
@@ -247,8 +253,9 @@ button.row:last-child{border-bottom:none}
     <main id="view"></main>
     <nav class="tabs" aria-label="Navigation">
       <button class="tab" data-act="tab" data-tab="punch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Punch</button>
+      <button class="tab" data-act="tab" data-tab="agenda"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 14h3"/></svg>Agenda</button>
       <button class="tab" data-act="tab" data-tab="projets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Projets</button>
-      <button class="tab" data-act="tab" data-tab="moi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>Mes heures</button>
+      <button class="tab" data-act="tab" data-tab="moi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>Heures</button>
     </nav>
   </section>
 </div>
