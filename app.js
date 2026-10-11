@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.4';
+const VERSION = '2.5';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -313,9 +313,16 @@ function fileBadge(f){
 function viewProjet(){
   const p = proj(S.pid); if(!p) return '';
   const tabs = [['check','Liste'],['files','Fichiers'],['photos','Photos'],['journal','Journal']];
+  if(p.estime && p.estime.lignes && p.estime.lignes.length) tabs.unshift(['travaux','Travaux']);
+  if(S.sub==='travaux' && tabs[0][0]!=='travaux') S.sub='check';
   const phs = photosOf(p.id), loaded = !!S.photos[p.id];
   let body = '';
-  if(S.sub==='check'){
+  if(S.sub==='travaux'){
+    const es = p.estime;
+    body = '<div class="eyebrow" style="margin-bottom:4px">'+es.lignes.length+' poste'+(es.lignes.length>1?'s':'')+' de travaux'+(es.date ? ' · soumission du '+esc(new Date(es.date+'T12:00:00').toLocaleDateString('fr-CA',{day:'numeric',month:'long',year:'numeric'})) : '')+'</div>'
+      + '<div class="card">'+es.lignes.map((l,i)=>`<div class="tv"><span class="tvn">${i+1}</span><div class="tvb"><b>${esc(l.titre)}</b>${(l.details||[]).length ? '<ul>'+l.details.map(x=>`<li${/^\*|à déterminer|à valider/i.test(x)?' class="todo"':''}>${esc(cap(String(x).replace(/^\*+\s*/,'')))}</li>`).join('')+'</ul>' : ''}</div></div>`).join('')+'</div>'
+      + '<p class="note">Voici ce qui est prévu à la soumission. Une question ou un changement? Écris-le dans le journal.</p>';
+  } else if(S.sub==='check'){
     const d = p.checklist.filter(i=>i.done).length;
     body = (p.checklist.length ? `<div class="eyebrow" style="margin-bottom:4px">${d} sur ${p.checklist.length} complété${d>1?'s':''}</div><div class="card">`+p.checklist.map(i=>`<label class="ck${i.done?' done':''}"><input type="checkbox" data-act="ck" data-id="${esc(i.id)}"${i.done?' checked':''}><span><b>${esc(i.text)}</b>${(i.addedBy || (i.done && i.completedBy)) ? `<small>${[i.addedBy ? 'Ajouté par '+esc(i.addedBy) : '', i.done && i.completedBy ? 'Complété par '+esc(i.completedBy)+(i.completedAt ? ', '+hm(new Date(i.completedAt)) : '') : ''].filter(Boolean).join(' · ')}</small>` : ''}</span></label>`).join('')+'</div>' : '<div class="empty">Aucun item pour ce chantier.</div>')
       +`<div class="addrow"><input id="ckIn" placeholder="Ajouter un item" value="${esc(S.ckDraft)}"><button class="btn" data-act="ckadd" aria-label="Ajouter">+</button></div>`;
@@ -343,7 +350,7 @@ function viewProjet(){
     <div class="meta" style="margin-top:6px">${(()=>{ const ev = nextEv(p.id); return ev ? `<span class="chip"><span class="eqdot ${eqCls(ev)}" style="margin-right:6px"></span>${esc(rangeLbl(ev))}</span>` : '<span class="chip warn">Pas à l\'agenda</span>'; })()}</div>
     ${mapLink(p.adresse)}
     ${p.notes ? `<div class="pnote"><span class="lbl">Notes</span><p>${esc(p.notes)}</p></div>` : ''}
-    <div class="seg">${tabs.map(t=>`<button class="${S.sub===t[0]?'on':''}" data-act="sub" data-sub="${t[0]}">${t[1]}</button>`).join('')}</div>${body}`;
+    <div class="seg" style="grid-template-columns:repeat(${tabs.length},1fr)!important">${tabs.map(t=>`<button class="${S.sub===t[0]?'on':''}" data-act="sub" data-sub="${t[0]}">${t[1]}</button>`).join('')}</div>${body}`;
 }
 function viewMoi(){
   const d0 = new Date(); const dow = (d0.getDay()+6)%7;
@@ -622,7 +629,7 @@ document.addEventListener('click', async e => {
     await queue('terrain_heure_delete',{p_id:h.id});
     return;
   }
-  if(a==='open'){ S.pid=t.dataset.id; S.sub='check'; S.tab='projets'; render(); $('#view').scrollTop=0; loadPhotos(S.pid); return; }
+  if(a==='open'){ S.pid=t.dataset.id; S.sub=(proj(S.pid)||{}).estime ? 'travaux' : 'check'; S.tab='projets'; render(); $('#view').scrollTop=0; loadPhotos(S.pid); return; }
   if(a==='back'){ S.pid=null; render(); return; }
   if(a==='sub'){ S.sub=t.dataset.sub; render(); return; }
   const p = proj(S.pid);
