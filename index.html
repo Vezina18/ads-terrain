@@ -68,6 +68,8 @@ button{cursor:pointer}
 /* En-tête */
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:12px 16px}
 .who{display:flex;align-items:center;gap:10px;min-width:0}
+.brandlogo{width:min(250px,68vw);height:auto;display:block}
+.mark-img{width:40px;height:40px;border-radius:10px;background:#1a2e1d;flex:none;object-fit:cover}
 .who .mark{width:40px;height:40px;border-radius:10px;font-size:14px;flex:none}
 .who b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who span{font-size:12px;color:var(--muted)}
@@ -269,7 +271,7 @@ button.row:last-child{border-bottom:none}
   </section>
 
   <section id="login" class="screen" hidden>
-    <div><div class="mark">ADS</div></div>
+    <div><img class="brandlogo" src="icons/logo-ads.png" alt="Aménagement du Sud"></div>
     <div>
       <h1>ADS Terrain</h1>
       <p>Punch et suivi de chantier.</p>
@@ -285,7 +287,7 @@ button.row:last-child{border-bottom:none}
 
   <section id="main" class="screen" hidden>
     <header class="top">
-      <div class="who"><div class="mark">ADS</div><div style="min-width:0"><b id="hello"></b><span id="roleLbl">Employé</span></div></div>
+      <div class="who"><img class="mark-img" src="icons/icon-ads.png" alt="ADS"><div style="min-width:0"><b id="hello"></b><span id="roleLbl">Employé</span></div></div>
       <div class="sync" id="sync"><i></i><span>En ligne</span></div>
     </header>
     <main id="view"></main>
