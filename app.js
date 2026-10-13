@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.5';
+const VERSION = '2.6';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -102,7 +102,7 @@ const hasOp = (fn,key,val) => mine().some(o=>o.fn===fn && o.args[key]===val);
 
 /* ---------- État ---------- */
 const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],agenda:[],agM:iso(new Date()).slice(0,7),agDay:iso(new Date()),heures:[],open:null,skew:0,pid:null,sub:'check',
-  pick:null,jDraft:'',jPhoto:null,ckDraft:'',sheet:false,pause:30,note:'',endT:'',lb:null,photos:{},photoFor:'gallery',wk:0,hs:null,
+  pick:null,mach:{},mSel:'',jDraft:'',jPhoto:null,ckDraft:'',sheet:false,pause:30,note:'',endT:'',lb:null,photos:{},photoFor:'gallery',wk:0,hs:null,
   loading:true,bootErr:null,syncing:false,dirty:false,reg:null};
 const proj = id => S.projets.find(p=>p.id===id);
 const projName = id => { const p = proj(id); return p ? p.nomDossier : 'Sans projet'; };
@@ -138,6 +138,23 @@ async function loadAllSafe(){
 async function loadPhotos(pid){
   try{ S.photos[pid] = await rpc('terrain_photos',{p_token:S.token,p_projet:pid}) || []; softRender(); }catch(e){}
 }
+/* ---------- Machinerie (heures de départ / fin par projet) ---------- */
+const MACHINES = ['Mini-pelle 1,7 tonne','Mini-pelle 3,5 tonnes','Mini-pelle 5,5 tonnes','Chargeur compact','Camion F550 dompeur','F250 + remorque dompeuse'];
+async function loadMach(pid){
+  try{ S.mach[pid] = await rpc('terrain_machines',{p_token:S.token,p_projet:pid}) || []; softRender(); }catch(e){}
+}
+function machOf(pid){
+  const base = (S.mach[pid] || []).map(r=>Object.assign({},r)); const byId = new Map(base.map(r=>[r.id,r]));
+  for(const o of mine()){
+    if(o.fn==='terrain_machine_save' && o.args.p_projet===pid){
+      const r = {id:o.args.p_id,machine:o.args.p_machine,jour:o.args.p_jour,debut:o.args.p_debut,fin:o.args.p_fin || null,par:S.user.nom,mine:true,wait:true};
+      if(byId.has(r.id)) Object.assign(byId.get(r.id),r); else { base.push(r); byId.set(r.id,r); }
+    }
+    if(o.fn==='terrain_machine_delete' && byId.has(o.args.p_id)){ const i = base.indexOf(byId.get(o.args.p_id)); if(i>=0) base.splice(i,1); byId.delete(o.args.p_id); }
+  }
+  return base.sort((a,b)=> (b.jour+b.debut).localeCompare(a.jour+a.debut));
+}
+function machDur(r){ if(!r.fin) return null; return calcH(r.debut,r.fin,0); }
 /* Photos affichées = celles du serveur + celles en attente d'envoi - celles supprimées en attente */
 function photosOf(pid){
   const base = (S.photos[pid] || []).slice(); const ids = new Set(base.map(f=>f.id));
@@ -163,7 +180,7 @@ function toast(msg){
 }
 function sessionLost(){
   lsSet(TOKEN_KEY,null); ssSet(TOKEN_KEY,null); lsSet(SNAP_KEY,null);
-  S.token = null; S.user = null; S.open = null; S.pid = null; S.sheet = false; S.lb = null; S.tab = 'punch'; S.photos = {};
+  S.token = null; S.user = null; S.open = null; S.pid = null; S.sheet = false; S.lb = null; S.tab = 'punch'; S.photos = {}; S.mach = {};
   render();
 }
 
@@ -193,7 +210,7 @@ async function flush(){
   } finally { S.syncing = false; }
   if(did && !stop && !pending() && S.user){
     S.photos = {}; await loadAllSafe();
-    if(S.pid && S.user) loadPhotos(S.pid);
+    if(S.pid && S.user){ loadPhotos(S.pid); if(S.sub==='mach') loadMach(S.pid); }
   }
   updSync(); softRender();
   return did;
@@ -312,7 +329,7 @@ function fileBadge(f){
 }
 function viewProjet(){
   const p = proj(S.pid); if(!p) return '';
-  const tabs = [['check','Liste'],['files','Fichiers'],['photos','Photos'],['journal','Journal']];
+  const tabs = [['check','Liste'],['files','Fichiers'],['photos','Photos'],['mach','Machines'],['journal','Journal']];
   if(p.estime && p.estime.lignes && p.estime.lignes.length) tabs.unshift(['travaux','Travaux']);
   if(S.sub==='travaux' && tabs[0][0]!=='travaux') S.sub='check';
   const phs = photosOf(p.id), loaded = !!S.photos[p.id];
@@ -331,6 +348,23 @@ function viewProjet(){
     body = (p.driveUrl ? `<a class="btn drive" href="${esc(p.driveUrl)}" target="_blank" rel="noopener">Ouvrir le dossier dans Google Drive</a>` : '')
       + (fl.length ? '<div class="card files">'+fl.map(f=>`<a class="frow" href="${esc(f.url)}" target="_blank" rel="noopener">${fileBadge(f)}<span class="fn"><b>${esc(f.nom)}</b><small>${[f.modifie ? new Date(f.modifie).toLocaleDateString('fr-CA',{day:'numeric',month:'short',year:'numeric'}) : '', f.taille ? fmtSize(f.taille) : ''].filter(Boolean).join(' · ')}</small></span><span class="go">›</span></a>`).join('')+'</div>' : '<div class="empty">Aucun fichier pour ce projet.</div>')
       + '<p class="note">Les fichiers s\'ouvrent dans Google Drive.</p>';
+  } else if(S.sub==='mach'){
+    const rows = machOf(p.id), t0 = iso(new Date(nowMs()));
+    const sel = S.mSel || MACHINES[0];
+    const tot = {}; rows.forEach(r=>{ const d = machDur(r); if(d!=null) tot[r.machine] = (tot[r.machine]||0)+d; });
+    body = '<div class="card" style="padding:14px"><div class="eyebrow" style="margin-bottom:8px">Ajouter une machine</div>'
+      +`<select id="mSel" class="msel">${MACHINES.map(m=>`<option${m===sel?' selected':''}>${esc(m)}</option>`).join('')}</select>`
+      +'<button class="btn" data-act="mstart" style="width:100%;margin-top:10px">▶ Démarrer maintenant</button>'
+      +'<div class="eyebrow" style="margin:14px 0 6px">Ou entrer les heures</div>'
+      +`<div class="mrow"><label>Jour<input type="date" id="mJour" value="${t0}"></label><label>Départ<input type="time" id="mDeb"></label><label>Fin<input type="time" id="mFin"></label></div>`
+      +'<button class="btn ghost" data-act="madd" style="width:100%;margin-top:10px">Ajouter ces heures</button></div>'
+      +(Object.keys(tot).length ? '<div class="pnote"><b>Total</b>'+Object.keys(tot).map(m=>`<p>${esc(m)} : ${fmtDur(tot[m])}</p>`).join('')+'</div>' : '')
+      +(rows.length ? '<div class="card" style="margin-top:12px">'+rows.map(r=>{
+          const d = machDur(r);
+          return `<div class="mach"><div class="mb"><b>${esc(r.machine)}</b><small>${esc(dayLabel(String(r.jour).slice(0,10)))} · ${esc(r.debut)}${r.fin ? ' → '+esc(r.fin) : ' → en cours'}${d!=null ? ' · '+fmtDur(d) : ''}${r.par ? ' · '+esc(r.par) : ''}${r.wait ? ' · à envoyer' : ''}</small></div>`
+            +(!r.fin ? `<button class="btn" data-act="mstop" data-id="${esc(r.id)}">■ Arrêter</button>` : '')
+            +(r.mine ? `<button class="btn ghost" data-act="mdel" data-id="${esc(r.id)}" aria-label="Supprimer">✕</button>` : '')+'</div>';
+        }).join('')+'</div>' : '<div class="empty">Aucune machine notée pour ce projet.</div>');
   } else if(S.sub==='photos'){
     const gal = phs.filter(f=>!f.journalId);
     body = `<button class="cam" data-act="shoot">${camSvg}Prendre une photo</button>`
@@ -629,9 +663,9 @@ document.addEventListener('click', async e => {
     await queue('terrain_heure_delete',{p_id:h.id});
     return;
   }
-  if(a==='open'){ S.pid=t.dataset.id; S.sub=(proj(S.pid)||{}).estime ? 'travaux' : 'check'; S.tab='projets'; render(); $('#view').scrollTop=0; loadPhotos(S.pid); return; }
+  if(a==='open'){ S.pid=t.dataset.id; S.sub=(proj(S.pid)||{}).estime ? 'travaux' : 'check'; S.tab='projets'; render(); $('#view').scrollTop=0; loadPhotos(S.pid); loadMach(S.pid); return; }
   if(a==='back'){ S.pid=null; render(); return; }
-  if(a==='sub'){ S.sub=t.dataset.sub; render(); return; }
+  if(a==='sub'){ S.sub=t.dataset.sub; render(); if(S.sub==='mach' && S.pid) loadMach(S.pid); return; }
   const p = proj(S.pid);
   if(a==='ck' && p){
     const i = p.checklist.find(x=>x.id===t.dataset.id); if(!i) return;
@@ -646,6 +680,27 @@ document.addEventListener('click', async e => {
     p.checklist.push({id,text:v,done:false,addedBy:S.user.nom,completedBy:null,completedAt:null}); S.ckDraft = ''; render();
     await queue('terrain_checklist_add',{p_projet:p.id,p_id:id,p_texte:v});
     return;
+  }
+  if(a==='mstart' && p){
+    const m = ($('#mSel') || {}).value || MACHINES[0]; S.mSel = m; const n = new Date(nowMs());
+    await queue('terrain_machine_save',{p_projet:p.id,p_id:'m'+uid(),p_machine:m,p_jour:iso(n),p_debut:hm(n),p_fin:''});
+    render(); toast('Machine démarrée à '+hm(n)+'.'); return;
+  }
+  if(a==='madd' && p){
+    const m = ($('#mSel') || {}).value || MACHINES[0], j = ($('#mJour') || {}).value, d = ($('#mDeb') || {}).value, f = ($('#mFin') || {}).value;
+    if(!j || !d){ toast('Indique le jour et l\'heure de départ.'); return; }
+    S.mSel = m;
+    await queue('terrain_machine_save',{p_projet:p.id,p_id:'m'+uid(),p_machine:m,p_jour:j,p_debut:d,p_fin:f || ''});
+    render(); toast('Heures ajoutées.'); return;
+  }
+  if(a==='mstop' && p){
+    const r = machOf(p.id).find(x=>x.id===t.dataset.id); if(!r) return; const n = new Date(nowMs());
+    await queue('terrain_machine_save',{p_projet:p.id,p_id:r.id,p_machine:r.machine,p_jour:String(r.jour).slice(0,10),p_debut:r.debut,p_fin:hm(n)});
+    render(); toast('Machine arrêtée à '+hm(n)+'.'); return;
+  }
+  if(a==='mdel' && p){
+    if(!confirm('Supprimer cette entrée de machine?')) return;
+    await queue('terrain_machine_delete',{p_id:t.dataset.id}); render(); return;
   }
   if(a==='shoot'){ S.photoFor='gallery'; $('#photoIn').click(); return; }
   if(a==='jshoot'){ S.photoFor='journal'; $('#photoIn').click(); return; }
