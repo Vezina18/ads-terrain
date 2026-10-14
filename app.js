@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.6';
+const VERSION = '2.7';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -103,7 +103,7 @@ const hasOp = (fn,key,val) => mine().some(o=>o.fn===fn && o.args[key]===val);
 /* ---------- État ---------- */
 const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],agenda:[],agM:iso(new Date()).slice(0,7),agDay:iso(new Date()),heures:[],open:null,skew:0,pid:null,sub:'check',
   pick:null,mach:{},mSel:'',jDraft:'',jPhoto:null,ckDraft:'',sheet:false,pause:30,note:'',endT:'',lb:null,photos:{},photoFor:'gallery',wk:0,hs:null,
-  loading:true,bootErr:null,syncing:false,dirty:false,reg:null};
+  loading:true,bootErr:null,syncing:false,dirty:false,reg:null,dep:null,depAdd:[],depOpen:{}};
 const proj = id => S.projets.find(p=>p.id===id);
 const projName = id => { const p = proj(id); return p ? p.nomDossier : 'Sans projet'; };
 const nowMs = () => Date.now() + S.skew;
@@ -118,7 +118,7 @@ const fmtClock = ms => { const s = Math.max(0,Math.floor(ms/1000)); return pad(M
 
 function persist(){
   if(!S.user) return;
-  lsSet(SNAP_KEY, JSON.stringify({user:S.user,projets:S.projets,agenda:S.agenda,heures:S.heures,open:S.open,skew:S.skew}));
+  lsSet(SNAP_KEY, JSON.stringify({user:S.user,projets:S.projets,agenda:S.agenda,heures:S.heures,open:S.open,skew:S.skew,dep:S.dep}));
 }
 function readSnap(){
   const raw = lsGet(SNAP_KEY); if(!raw) return null;
@@ -137,6 +137,56 @@ async function loadAllSafe(){
 }
 async function loadPhotos(pid){
   try{ S.photos[pid] = await rpc('terrain_photos',{p_token:S.token,p_projet:pid}) || []; softRender(); }catch(e){}
+}
+/* ---------- Départ du matin (checklists) ---------- */
+const DEP_CATS = ['Machinerie','Matériel','Outils','Sécurité','Autre'];
+async function loadDepart(){
+  if(!S.token || !S.user) return;
+  try{ S.dep = await rpc('terrain_depart',{p_token:S.token,p_jour:todayS()}); persist(); softRender(); }catch(e){}
+}
+function depProjets(){
+  const t = todayS();
+  const ids = []; S.agenda.forEach(e=>{ if(e.projetId && e.debut<=t && t<e.fin && proj(e.projetId) && !ids.includes(e.projetId)) ids.push(e.projetId); });
+  return {today:ids, extra:S.depAdd.filter(i=>proj(i) && !ids.includes(i))};
+}
+function depItems(pid){
+  const d = S.dep || {modeles:[],projets:[],coches:[]};
+  const cfg = (d.projets || []).find(x=>x.projetId===pid) || {types:[],extra:[]};
+  const keys = ['general'].concat((cfg.types || []).filter(k=>k!=='general'));
+  const seen = new Set(), out = [];
+  const add = (it,src) => { if(!it || !it.id || seen.has(it.id)) return; seen.add(it.id); out.push({id:it.id,texte:it.texte,cat:it.cat || 'Autre',src}); };
+  (cfg.extra || []).forEach(it=>add(it,'projet'));
+  keys.forEach(k=>{ const m = (d.modeles || []).find(x=>x.cle===k); if(m) (m.items || []).forEach(it=>add(it,k)); });
+  return out;
+}
+function depCoches(pid){
+  const m = new Map(); const d = S.dep || {coches:[]};
+  (d.coches || []).filter(c=>c.projetId===pid).forEach(c=>m.set(c.item,c.par || ''));
+  for(const o of mine()){
+    if(o.fn==='terrain_depart_cocher' && o.args.p_projet===pid){ if(o.args.p_fait) m.set(o.args.p_item,S.user.nom); else m.delete(o.args.p_item); }
+  }
+  return m;
+}
+function viewDepart(){
+  const d = S.dep, hdr = '<h1 class="big" style="margin-bottom:4px">Départ</h1><p class="note" style="margin:0 0 14px">Avant de partir: on s\'assure d\'avoir tout.</p>';
+  if(!d) return hdr+'<div class="empty">Chargement des listes…<br><button class="btn ghost" style="margin-top:12px" data-act="depreload">Réessayer</button></div>';
+  const {today,extra} = depProjets(), ids = today.concat(extra);
+  let h = hdr;
+  if(!ids.length) h += '<div class="empty">Aucun projet à l\'agenda aujourd\'hui. Ajoute un projet ci-dessous.</div>';
+  h += ids.map(pid=>{
+    const p = proj(pid), items = depItems(pid), co = depCoches(pid), n = items.filter(i=>co.has(i.id)).length;
+    const open = S.depOpen[pid] !== false;
+    const cats = DEP_CATS.map(c=>({c,l:items.filter(i=>i.cat===c)})).filter(x=>x.l.length);
+    const body = open ? cats.map(x=>`<div class="eyebrow" style="margin:14px 0 2px">${esc(x.c)}</div><div class="card">`+x.l.map(i=>{
+      const par = co.get(i.id), on = co.has(i.id);
+      return `<label class="ck${on?' done':''}"><input type="checkbox" data-act="depck" data-p="${esc(pid)}" data-id="${esc(i.id)}"${on?' checked':''}><span><b>${esc(i.texte)}</b>${i.src==='projet'?'<small>Selon la soumission</small>':''}${on && par ? `<small>Chargé par ${esc(par)}</small>` : ''}</span></label>`;
+    }).join('')+'</div>').join('') : '';
+    const done = items.length && n===items.length;
+    return `<section style="margin-top:18px"><button class="row" style="padding:10px 0" data-act="depfold" data-p="${esc(pid)}"><span class="l"><b>${esc(p.nomDossier)}</b><small>${esc(p.adresse || '')}</small></span><span class="r" style="color:${done?'var(--accent)':'inherit'}">${done?'✓ ':''}${n}/${items.length}</span></button>${body}</section>`;
+  }).join('');
+  const others = S.projets.filter(p=>!ids.includes(p.id));
+  if(others.length) h += `<div class="field" style="margin-top:22px"><label for="depAddSel">Ajouter un autre projet</label><select id="depAddSel" class="ctl" data-act="depadd"><option value="">Choisir…</option>${others.map(p=>`<option value="${esc(p.id)}">${esc(p.nomDossier)}</option>`).join('')}</select></div>`;
+  return h;
 }
 /* ---------- Machinerie (heures de départ / fin par projet) ---------- */
 const MACHINES = ['Mini-pelle 1,7 tonne','Mini-pelle 3,5 tonnes','Mini-pelle 5,5 tonnes','Chargeur compact','Camion F550 dompeur','F250 + remorque dompeuse'];
@@ -211,6 +261,7 @@ async function flush(){
   if(did && !stop && !pending() && S.user){
     S.photos = {}; await loadAllSafe();
     if(S.pid && S.user){ loadPhotos(S.pid); if(S.sub==='mach') loadMach(S.pid); }
+    if(S.tab==='depart') loadDepart();
   }
   updSync(); softRender();
   return did;
@@ -218,7 +269,7 @@ async function flush(){
 async function refresh(){
   if(!S.token || !S.user) return;
   const did = await flush();
-  if(!did && !pending()){ await loadAllSafe(); if(S.pid && S.user) loadPhotos(S.pid); }
+  if(!did && !pending()){ await loadAllSafe(); if(S.pid && S.user) loadPhotos(S.pid); if(S.tab==='depart') loadDepart(); }
   softRender();
 }
 
@@ -424,7 +475,7 @@ function render(){
   $('#roleLbl').textContent = S.user.role === 'admin' ? 'Administrateur' : 'Employé';
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.tab===S.tab));
   const v = $('#view'); const st = v.scrollTop;
-  v.innerHTML = S.pid ? viewProjet() : S.tab==='punch' ? viewPunch() : S.tab==='agenda' ? viewAgenda() : S.tab==='projets' ? viewProjets() : viewMoi();
+  v.innerHTML = S.pid ? viewProjet() : S.tab==='punch' ? viewPunch() : S.tab==='agenda' ? viewAgenda() : S.tab==='projets' ? viewProjets() : S.tab==='depart' ? viewDepart() : viewMoi();
   v.scrollTop = st;
   renderOverlay(false); tick(); updSync();
 }
@@ -527,6 +578,7 @@ function shrink(file,sizes){
     r.readAsDataURL(file);
   });
 }
+document.addEventListener('change', e => { const t = e.target; if(t && t.id==='depAddSel' && t.value){ if(!S.depAdd.includes(t.value)) S.depAdd.push(t.value); render(); } });
 $('#photoIn').addEventListener('change', async e => {
   const f = e.target.files && e.target.files[0]; e.target.value = ''; if(!f) return;
   let pair;
@@ -583,7 +635,10 @@ document.addEventListener('click', async e => {
     if(n && !confirm(n+' élément'+(n>1?'s':'')+' pas encore envoyé'+(n>1?'s':'')+'. Ils partiront à ta prochaine connexion. Se déconnecter quand même?')) return;
     const tk = S.token; sessionLost(); if(tk) rpc('terrain_logout',{p_token:tk}).catch(()=>{}); return;
   }
-  if(a==='tab'){ S.tab=t.dataset.tab; S.pid=null; render(); $('#view').scrollTop=0; return; }
+  if(a==='tab'){ S.tab=t.dataset.tab; S.pid=null; render(); $('#view').scrollTop=0; if(S.tab==='depart') loadDepart(); return; }
+  if(a==='depreload'){ loadDepart(); return; }
+  if(a==='depfold'){ S.depOpen[t.dataset.p] = S.depOpen[t.dataset.p]===false; render(); return; }
+  if(a==='depck'){ await queue('terrain_depart_cocher',{p_projet:t.dataset.p,p_item:t.dataset.id,p_fait:t.checked,p_jour:todayS()}); render(); return; }
   if(a==='wk'){ S.wk = Math.max(-2,Math.min(0,S.wk+Number(t.dataset.d))); render(); return; }
   if(a==='agday'){ S.agDay = t.dataset.d; render(); const el = $('#agDetail'); if(el) el.scrollIntoView({behavior:'smooth',block:'end'}); return; }
   if(a==='agnav'){ const d = new Date(+S.agM.slice(0,4), +S.agM.slice(5,7)-1+Number(t.dataset.d), 1); S.agM = iso(d).slice(0,7); S.agDay = iso(d); render(); return; }
@@ -743,7 +798,7 @@ async function boot(){
   if(!S.token){ S.loading = false; render(); return; }
   const snap = readSnap();
   if(snap){
-    S.user = snap.user; S.projets = snap.projets || []; S.agenda = snap.agenda || []; S.heures = snap.heures || []; S.open = snap.open || null; S.skew = snap.skew || 0;
+    S.user = snap.user; S.projets = snap.projets || []; S.agenda = snap.agenda || []; S.heures = snap.heures || []; S.open = snap.open || null; S.skew = snap.skew || 0; S.dep = snap.dep || null;
     S.loading = false; render(); refresh(); return;
   }
   try{ await loadAll(); S.loading = false; render(); flush(); }
