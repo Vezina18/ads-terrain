@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.7';
+const VERSION = '2.8';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -355,11 +355,23 @@ function viewAgenda(){
   const t = todayS(), Y = +S.agM.slice(0,4), M = +S.agM.slice(5,7);
   const first = new Date(Y,M-1,1), dow = (first.getDay()+6)%7, dim = new Date(Y,M,0).getDate(), rows = Math.ceil((dow+dim)/7);
   const evsOn = ds => S.agenda.filter(e=>e.debut<=ds && ds<e.fin).sort((a,b)=>a.debut<b.debut?-1:a.debut>b.debut?1:a.id<b.id?-1:1);
-  let cells = '';
-  for(let i=0;i<rows*7;i++){
-    const d = new Date(Y,M-1,1-dow+i), ds = iso(d), out = d.getMonth()!==M-1, evs = evsOn(ds);
-    const bars = evs.slice(0,3).map(e=>`<i class="bar ${eqCls(e)}">${(ds===e.debut || i%7===0) ? esc(e.titre.replace(/^\d{5}\s*-\s*/,'')) : '&nbsp;'}</i>`).join('') + (evs.length>3 ? `<i class="more">+${evs.length-3}</i>` : '');
-    cells += `<button class="dc${out?' out':''}${ds===t?' today':''}${ds===S.agDay?' sel':''}" data-act="agday" data-d="${ds}" aria-label="${esc(ds)}"><span class="dn">${d.getDate()}</span>${bars}</button>`;
+  const LANES = 3; let weeks = '';
+  for(let w=0;w<rows;w++){
+    const days = []; for(let c=0;c<7;c++){ const d = new Date(Y,M-1,1-dow+w*7+c); days.push({d,ds:iso(d)}); }
+    const w0 = days[0].ds, w6 = days[6].ds;
+    /* barres continues: une même "voie" pour tout l'événement dans la semaine, comme Google Agenda */
+    const segs = S.agenda.filter(e=>e.debut<=w6 && e.fin>w0).map(e=>{
+      const s = Math.max(0, days.findIndex(x=>x.ds>=e.debut)), lastIdx = days.map(x=>x.ds<e.fin).lastIndexOf(true);
+      return {e,s:e.debut<w0?0:s,n:lastIdx-(e.debut<w0?0:s)+1,cl:e.debut<w0,cr:e.fin>addDays(w6,1)};
+    }).sort((x,y)=> x.s-y.s || y.n-x.n || (x.e.debut<y.e.debut?-1:x.e.debut>y.e.debut?1:x.e.id<y.e.id?-1:1));
+    const lanes = [];
+    segs.forEach(g=>{ let l = 0; while(lanes[l] && lanes[l] > g.s) l++; lanes[l] = g.s+g.n; g.l = l; });
+    const bars = segs.filter(g=>g.l<LANES).map(g=>`<i class="sbar ${eqCls(g.e)}${g.cl?' cl':''}${g.cr?' cr':''}" style="grid-column:${g.s+1}/span ${g.n};grid-row:${g.l+1}">${esc(g.e.titre.replace(/^\d{5}\s*-\s*/,''))}</i>`).join('');
+    const cells = days.map((x,c)=>{
+      const hid = segs.filter(g=>g.l>=LANES && c>=g.s && c<g.s+g.n).length, out = x.d.getMonth()!==M-1;
+      return `<button class="dc${out?' out':''}${x.ds===t?' today':''}${x.ds===S.agDay?' sel':''}" data-act="agday" data-d="${x.ds}" aria-label="${esc(x.ds)}"><span class="dn">${x.d.getDate()}</span>${hid ? `<i class="more">+${hid}</i>` : ''}</button>`;
+    }).join('');
+    weeks += `<div class="wkr"><div class="cal">${cells}</div><div class="sbars">${bars}</div></div>`;
   }
   const mname = cap(first.toLocaleDateString('fr-CA',{month:'long',year:'numeric'}));
   const day = evsOn(S.agDay);
@@ -367,7 +379,7 @@ function viewAgenda(){
   return `<div class="agh"><button class="navb" data-act="agnav" data-d="-1" aria-label="Mois précédent">‹</button><h1 class="big" style="font-size:24px;margin:0;text-align:center">${esc(mname)}</h1><button class="navb" data-act="agnav" data-d="1" aria-label="Mois suivant">›</button></div>
     <div class="aglg"><span><i class="eqdot eq1"></i> Équipe 1</span><span><i class="eqdot eq2"></i> Équipe 2</span><button class="linkbtn" style="margin:0;height:34px" data-act="agtoday">Aujourd'hui</button></div>
     <div class="cal head">${['L','M','M','J','V','S','D'].map(x=>`<span>${x}</span>`).join('')}</div>
-    <div class="cal">${cells}</div>
+    <div class="wks">${weeks}</div>
     <div class="sec" id="agDetail"><span class="lbl">${esc(dlabel)}</span>${day.length ? day.map(evCard).join('') : '<div class="empty">Rien à l\'agenda ce jour-là.</div>'}</div>`;
 }
 const camSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>';
