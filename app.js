@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.0';
+const VERSION = '3.1';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -408,9 +408,8 @@ function viewProjet(){
       +`<div class="addrow"><input id="ckIn" placeholder="Ajouter un item" value="${esc(S.ckDraft)}"><button class="btn" data-act="ckadd" aria-label="Ajouter">+</button></div>`;
   } else if(S.sub==='files'){
     const fl = p.fichiers || [];
-    body = (p.driveUrl ? `<a class="btn drive" href="${esc(p.driveUrl)}" target="_blank" rel="noopener">Ouvrir le dossier du projet (OneDrive)</a>` : '')
-      + (fl.length ? '<div class="card files">'+fl.map(f=>`<a class="frow" href="${esc(f.url)}" target="_blank" rel="noopener">${fileBadge(f)}<span class="fn"><b>${esc(f.nom)}</b><small>${[f.modifie ? new Date(f.modifie).toLocaleDateString('fr-CA',{day:'numeric',month:'short',year:'numeric'}) : '', f.taille ? fmtSize(f.taille) : ''].filter(Boolean).join(' · ')}</small></span><span class="go">›</span></a>`).join('')+'</div>' : '<div class="empty">Aucun fichier pour ce projet.</div>')
-      + '<p class="note">Les fichiers s\'ouvrent dans OneDrive (connexion requise).</p>';
+    body = (fl.length ? '<div class="card files">'+fl.map(f=>`<button class="frow" data-act="fopen" data-id="${esc(f.id)}" style="width:100%;text-align:left;background:none;border:0;font:inherit;color:inherit">${fileBadge(f)}<span class="fn"><b>${esc(f.nom)}</b><small>${f.taille ? fmtSize(f.taille) : ''}</small></span><span class="go">›</span></button>`).join('')+'</div>' : '<div class="empty">Aucun fichier pour ce projet.</div>')
+      + '<p class="note">Touche un fichier pour l\'ouvrir.</p>';
   } else if(S.sub==='mach'){
     const rows = machOf(p.id), t0 = iso(new Date(nowMs()));
     const sel = S.mSel || MACHINES[0];
@@ -772,6 +771,16 @@ document.addEventListener('click', async e => {
     p.journal.push({id,author:S.user.nom,text:v,photoId:phId,createdAt:Date.now()});
     S.jDraft = ''; S.jPhoto = null; render();
     await queue('terrain_journal_add',{p_projet:p.id,p_id:id,p_texte:v,p_photo_id:phId,p_mini:ph ? ph.mini : null,p_src:ph ? ph.src : null});
+    return;
+  }
+  if(a==='fopen'){
+    const w = window.open('', '_blank');
+    try{
+      const r = await rpc('terrain_fichier',{p_token:S.token,p_id:t.dataset.id});
+      const bin = atob(r.data), u8 = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([u8],{type:r.mime || 'application/octet-stream'}));
+      if(w) w.location.href = url; else location.href = url;
+    }catch(err){ if(w) w.close(); alert('Impossible d\'ouvrir le fichier (réseau?). Réessaie.'); }
     return;
   }
   if(a==='zoom' || a==='zoomj'){
