@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.1';
+const VERSION = '3.2';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -196,7 +196,7 @@ async function loadMach(pid){
 function machOf(pid){
   const base = (S.mach[pid] || []).map(r=>Object.assign({},r)); const byId = new Map(base.map(r=>[r.id,r]));
   for(const o of mine()){
-    if(o.fn==='terrain_machine_save' && o.args.p_projet===pid){
+    if((o.fn==='terrain_machine_save' || o.fn==='terrain_machine_compteur') && o.args.p_projet===pid){
       const r = {id:o.args.p_id,machine:o.args.p_machine,jour:o.args.p_jour,debut:o.args.p_debut,fin:o.args.p_fin || null,par:S.user.nom,mine:true,wait:true};
       if(byId.has(r.id)) Object.assign(byId.get(r.id),r); else { base.push(r); byId.set(r.id,r); }
     }
@@ -204,7 +204,9 @@ function machOf(pid){
   }
   return base.sort((a,b)=> (b.jour+b.debut).localeCompare(a.jour+a.debut));
 }
-function machDur(r){ if(!r.fin) return null; return calcH(r.debut,r.fin,0); }
+function cnum(v){ const n = parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n) ? null : n; }
+function cfmt(n){ return (Math.round(n*100)/100).toString().replace('.',','); }
+function machDur(r){ const a = cnum(r.debut), b = cnum(r.fin); return (a==null || b==null || b<a) ? null : b-a; }
 /* Photos affichées = celles du serveur + celles en attente d'envoi - celles supprimées en attente */
 function photosOf(pid){
   const base = (S.photos[pid] || []).slice(); const ids = new Set(base.map(f=>f.id));
@@ -413,14 +415,15 @@ function viewProjet(){
   } else if(S.sub==='mach'){
     const rows = machOf(p.id), t0 = iso(new Date(nowMs()));
     const sel = S.mSel || MACHINES[0];
-    const tot = {}; rows.forEach(r=>{ const d = machDur(r); if(d!=null) tot[r.machine] = (tot[r.machine]||0)+d; });
     body = '<div class="card" style="padding:14px"><div class="eyebrow" style="margin-bottom:8px">Machine arrivée sur le chantier</div>'
       +`<select id="mSel" class="msel">${MACHINES.map(m=>`<option${m===sel?' selected':''}>${esc(m)}</option>`).join('')}</select>`
-      +'<button class="btn" data-act="mstart" style="width:100%;margin-top:10px">▶ Arrivée maintenant</button></div>'
+      +'<label style="display:block;margin-top:10px;font-size:13px">Heures au compteur à l\'arrivée<input id="mArr" type="text" inputmode="decimal" placeholder="ex. 1234,5" style="width:100%;margin-top:4px"></label>'
+      +'<button class="btn" data-act="mstart" style="width:100%;margin-top:10px">Enregistrer l\'arrivée</button></div>'
       +(rows.length ? '<div class="card" style="margin-top:12px">'+rows.map(r=>{
-          return `<div class="mach"><div class="mb"><b>${esc(r.machine)}</b><small>${esc(dayLabel(String(r.jour).slice(0,10)))} · Arrivée ${esc(r.debut)}${r.fin ? ' · Départ '+esc(r.fin) : ' · sur le chantier'}${r.par ? ' · '+esc(r.par) : ''}${r.wait ? ' · à envoyer' : ''}</small></div>`
-            +(!r.fin ? `<button class="btn" data-act="mstop" data-id="${esc(r.id)}">■ Départ</button>` : '')
-            +(r.mine ? `<button class="btn ghost" data-act="mdel" data-id="${esc(r.id)}" aria-label="Supprimer">✕</button>` : '')+'</div>';
+          const d = machDur(r);
+          return `<div class="mach" style="flex-wrap:wrap"><div class="mb"><b>${esc(r.machine)}</b><small>${esc(dayLabel(String(r.jour).slice(0,10)))} · Arrivée ${esc(cfmt(cnum(r.debut)||0))} h${r.fin ? ' → Départ '+esc(cfmt(cnum(r.fin)||0))+' h' : ' · sur le chantier'}${d!=null ? ' = '+cfmt(d)+' h d\'utilisation' : ''}${r.par ? ' · '+esc(r.par) : ''}${r.wait ? ' · à envoyer' : ''}</small></div>`
+            +(r.mine ? `<button class="btn ghost" data-act="mdel" data-id="${esc(r.id)}" aria-label="Supprimer">✕</button>` : '')
+            +(!r.fin ? `<div style="display:flex;gap:8px;width:100%;margin-top:8px"><input class="mDep" data-id="${esc(r.id)}" type="text" inputmode="decimal" placeholder="Compteur au départ" style="flex:1"><button class="btn" data-act="mstop" data-id="${esc(r.id)}">Enregistrer le départ</button></div>` : '')+'</div>';
         }).join('')+'</div>' : '<div class="empty">Aucune machine notée pour ce projet.</div>');
   } else if(S.sub==='photos'){
     const gal = phs.filter(f=>!f.journalId);
@@ -743,21 +746,18 @@ document.addEventListener('click', async e => {
     return;
   }
   if(a==='mstart' && p){
-    const m = ($('#mSel') || {}).value || MACHINES[0]; S.mSel = m; const n = new Date(nowMs());
-    await queue('terrain_machine_save',{p_projet:p.id,p_id:'m'+uid(),p_machine:m,p_jour:iso(n),p_debut:hm(n),p_fin:''});
-    render(); toast('Machine démarrée à '+hm(n)+'.'); return;
-  }
-  if(a==='madd' && p){
-    const m = ($('#mSel') || {}).value || MACHINES[0], j = ($('#mJour') || {}).value, d = ($('#mDeb') || {}).value, f = ($('#mFin') || {}).value;
-    if(!j || !d){ toast('Indique le jour et l\'heure de départ.'); return; }
-    S.mSel = m;
-    await queue('terrain_machine_save',{p_projet:p.id,p_id:'m'+uid(),p_machine:m,p_jour:j,p_debut:d,p_fin:f || ''});
-    render(); toast('Heures ajoutées.'); return;
+    const m = ($('#mSel') || {}).value || MACHINES[0], v = (($('#mArr') || {}).value || '').trim(); S.mSel = m;
+    if(cnum(v)==null){ toast('Écris les heures du compteur à l\'arrivée.'); return; }
+    await queue('terrain_machine_compteur',{p_projet:p.id,p_id:'m'+uid(),p_machine:m,p_jour:iso(new Date(nowMs())),p_debut:v,p_fin:''});
+    render(); toast('Arrivée enregistrée : '+cfmt(cnum(v))+' h.'); return;
   }
   if(a==='mstop' && p){
-    const r = machOf(p.id).find(x=>x.id===t.dataset.id); if(!r) return; const n = new Date(nowMs());
-    await queue('terrain_machine_save',{p_projet:p.id,p_id:r.id,p_machine:r.machine,p_jour:String(r.jour).slice(0,10),p_debut:r.debut,p_fin:hm(n)});
-    render(); toast('Machine arrêtée à '+hm(n)+'.'); return;
+    const r = machOf(p.id).find(x=>x.id===t.dataset.id); if(!r) return;
+    const inp = document.querySelector('.mDep[data-id="'+t.dataset.id+'"]'), v = ((inp||{}).value || '').trim();
+    if(cnum(v)==null){ toast('Écris les heures du compteur au départ.'); return; }
+    if(cnum(v) < cnum(r.debut)){ toast('Le compteur au départ doit être plus grand qu\'à l\'arrivée.'); return; }
+    await queue('terrain_machine_compteur',{p_projet:p.id,p_id:r.id,p_machine:r.machine,p_jour:String(r.jour).slice(0,10),p_debut:r.debut,p_fin:v});
+    render(); toast('Départ enregistré : '+cfmt(cnum(v)-cnum(r.debut))+' h d\'utilisation.'); return;
   }
   if(a==='mdel' && p){
     if(!confirm('Supprimer cette entrée de machine?')) return;
