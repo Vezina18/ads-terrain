@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.3';
+const VERSION = '3.4';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -173,14 +173,25 @@ function depCoches(){
   return m;
 }
 function viewDepart(){
-  const d = S.dep, hdr = '<h1 class="big" style="margin-bottom:4px">Départ</h1><p class="note" style="margin:0 0 14px">Listes selon les travaux prévus aujourd\'hui.</p>';
+  const d = S.dep, hdr = '<h1 class="big" style="margin-bottom:4px">Départ</h1><p class="note" style="margin:0 0 14px">Choisis le type de travail pour voir la liste.</p>';
   if(!d) return hdr+'<div class="empty">Chargement des listes…<br><button class="btn ghost" style="margin-top:12px" data-act="depreload">Réessayer</button></div>';
   const ids = depProjets();
   let h = hdr;
   if(ids.length) h += '<div class="pnote" style="margin-bottom:6px"><b>Aujourd\'hui</b>'+ids.map(pid=>`<p>${esc((proj(pid)||{}).nomDossier || '')}</p>`).join('')+'</div>';
   else h += '<div class="empty">Aucun projet à l\'agenda aujourd\'hui. Ajoute un projet ci-dessous.</div>';
   const co = depCoches();
-  h += depSections(ids).map(sec=>{
+  const all = depSections(ids), mods = (d.modeles || []).filter(m=>m.cle!=='general');
+  const todayTypes = all.filter(x=>x.key!=='general' && x.key!=='extra').map(x=>x.key);
+  const sel = S.depType !== undefined && S.depType !== null ? S.depType : (todayTypes[0] || '');
+  h += `<div class="field" style="margin-top:6px"><label for="depTypeSel">Quel type de travail ?</label><select id="depTypeSel" class="ctl"><option value="">Choisir…</option>${mods.map(m=>`<option value="${esc(m.cle)}"${m.cle===sel?' selected':''}>${esc(m.nom)}${todayTypes.includes(m.cle)?' · prévu aujourd\'hui':''}</option>`).join('')}</select></div>`;
+  const chosen = [];
+  const gen = all.find(x=>x.key==='general'); if(gen) chosen.push(gen);
+  if(sel){
+    const m = mods.find(x=>x.cle===sel);
+    if(m && (m.items || []).length) chosen.push({key:sel,titre:m.nom,items:m.items.map(it=>({id:it.id,texte:it.texte,cat:it.cat || ''}))});
+    const ex = all.find(x=>x.key==='extra'); if(ex) chosen.push(ex);
+  } else h += '<div class="empty" style="margin-top:10px">Choisis le type de travail pour voir la liste.</div>';
+  h += chosen.map(sec=>{
     const n = sec.items.filter(i=>co.has(i.id)).length, done = n===sec.items.length;
     const open = S.depOpen[sec.key] !== false;
     const body = open ? '<div class="card">'+sec.items.map(i=>{
@@ -616,7 +627,7 @@ function shrink(file,sizes){
     r.readAsDataURL(file);
   });
 }
-document.addEventListener('change', e => { const t = e.target; if(t && t.id==='depAddSel' && t.value){ if(!S.depAdd.includes(t.value)) S.depAdd.push(t.value); render(); } });
+document.addEventListener('change', e => { const t = e.target; if(t && t.id==='depTypeSel'){ S.depType = t.value; render(); return; } if(t && t.id==='depAddSel' && t.value){ if(!S.depAdd.includes(t.value)) S.depAdd.push(t.value); render(); } });
 $('#photoIn').addEventListener('change', async e => {
   const f = e.target.files && e.target.files[0]; e.target.value = ''; if(!f) return;
   let pair;
