@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.9';
+const VERSION = '3.0';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -415,17 +415,12 @@ function viewProjet(){
     const rows = machOf(p.id), t0 = iso(new Date(nowMs()));
     const sel = S.mSel || MACHINES[0];
     const tot = {}; rows.forEach(r=>{ const d = machDur(r); if(d!=null) tot[r.machine] = (tot[r.machine]||0)+d; });
-    body = '<div class="card" style="padding:14px"><div class="eyebrow" style="margin-bottom:8px">Ajouter une machine</div>'
+    body = '<div class="card" style="padding:14px"><div class="eyebrow" style="margin-bottom:8px">Machine arrivée sur le chantier</div>'
       +`<select id="mSel" class="msel">${MACHINES.map(m=>`<option${m===sel?' selected':''}>${esc(m)}</option>`).join('')}</select>`
-      +'<button class="btn" data-act="mstart" style="width:100%;margin-top:10px">▶ Démarrer maintenant</button>'
-      +'<div class="eyebrow" style="margin:14px 0 6px">Ou entrer les heures</div>'
-      +`<div class="mrow"><label>Jour<input type="date" id="mJour" value="${t0}"></label><label>Départ<input type="time" id="mDeb"></label><label>Fin<input type="time" id="mFin"></label></div>`
-      +'<button class="btn ghost" data-act="madd" style="width:100%;margin-top:10px">Ajouter ces heures</button></div>'
-      +(Object.keys(tot).length ? '<div class="pnote"><b>Total</b>'+Object.keys(tot).map(m=>`<p>${esc(m)} : ${fmtDur(tot[m])}</p>`).join('')+'</div>' : '')
+      +'<button class="btn" data-act="mstart" style="width:100%;margin-top:10px">▶ Arrivée maintenant</button></div>'
       +(rows.length ? '<div class="card" style="margin-top:12px">'+rows.map(r=>{
-          const d = machDur(r);
-          return `<div class="mach"><div class="mb"><b>${esc(r.machine)}</b><small>${esc(dayLabel(String(r.jour).slice(0,10)))} · ${esc(r.debut)}${r.fin ? ' → '+esc(r.fin) : ' → en cours'}${d!=null ? ' · '+fmtDur(d) : ''}${r.par ? ' · '+esc(r.par) : ''}${r.wait ? ' · à envoyer' : ''}</small></div>`
-            +(!r.fin ? `<button class="btn" data-act="mstop" data-id="${esc(r.id)}">■ Arrêter</button>` : '')
+          return `<div class="mach"><div class="mb"><b>${esc(r.machine)}</b><small>${esc(dayLabel(String(r.jour).slice(0,10)))} · Arrivée ${esc(r.debut)}${r.fin ? ' · Départ '+esc(r.fin) : ' · sur le chantier'}${r.par ? ' · '+esc(r.par) : ''}${r.wait ? ' · à envoyer' : ''}</small></div>`
+            +(!r.fin ? `<button class="btn" data-act="mstop" data-id="${esc(r.id)}">■ Départ</button>` : '')
             +(r.mine ? `<button class="btn ghost" data-act="mdel" data-id="${esc(r.id)}" aria-label="Supprimer">✕</button>` : '')+'</div>';
         }).join('')+'</div>' : '<div class="empty">Aucune machine notée pour ce projet.</div>');
   } else if(S.sub==='photos'){
