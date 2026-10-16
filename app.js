@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.2';
+const VERSION = '3.3';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -103,7 +103,7 @@ const hasOp = (fn,key,val) => mine().some(o=>o.fn===fn && o.args[key]===val);
 /* ---------- État ---------- */
 const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],agenda:[],agM:iso(new Date()).slice(0,7),agDay:iso(new Date()),heures:[],open:null,skew:0,pid:null,sub:'check',
   pick:null,mach:{},mSel:'',jDraft:'',jPhoto:null,ckDraft:'',sheet:false,pause:30,note:'',endT:'',lb:null,photos:{},photoFor:'gallery',wk:0,hs:null,
-  loading:true,bootErr:null,syncing:false,dirty:false,reg:null,dep:null,depAdd:[],depOpen:{}};
+  loading:true,bootErr:null,syncing:false,dirty:false,reg:null,dep:null,depAdd:[],depOpen:{},tcOpen:{},othersOpen:false};
 const proj = id => S.projets.find(p=>p.id===id);
 const projName = id => { const p = proj(id); return p ? p.nomDossier : 'Sans projet'; };
 const nowMs = () => Date.now() + S.skew;
@@ -147,42 +147,47 @@ async function loadDepart(){
 function depProjets(){
   const t = todayS();
   const ids = []; S.agenda.forEach(e=>{ if(e.projetId && e.debut<=t && t<e.fin && proj(e.projetId) && !ids.includes(e.projetId)) ids.push(e.projetId); });
-  return {today:ids, extra:S.depAdd.filter(i=>proj(i) && !ids.includes(i))};
+  S.depAdd.forEach(i=>{ if(proj(i) && !ids.includes(i)) ids.push(i); });
+  return ids;
 }
-function depItems(pid){
+/* Listes du jour: une liste par type de travaux (pas par projet). Cases cochées une seule fois pour la journée (projet '*'). */
+function depSections(ids){
   const d = S.dep || {modeles:[],projets:[],coches:[]};
-  const cfg = (d.projets || []).find(x=>x.projetId===pid) || {types:[],extra:[]};
-  const keys = ['general'].concat((cfg.types || []).filter(k=>k!=='general'));
-  const seen = new Set(), out = [];
-  const add = (it,src) => { if(!it || !it.id || seen.has(it.id)) return; seen.add(it.id); out.push({id:it.id,texte:it.texte,cat:it.cat || 'Autre',src}); };
-  (cfg.extra || []).forEach(it=>add(it,'projet'));
-  keys.forEach(k=>{ const m = (d.modeles || []).find(x=>x.cle===k); if(m) (m.items || []).forEach(it=>add(it,k)); });
-  return out;
+  const typeKeys = [];
+  ids.forEach(pid=>{ const cfg = (d.projets || []).find(x=>x.projetId===pid); ((cfg && cfg.types) || []).forEach(k=>{ if(k!=='general' && !typeKeys.includes(k)) typeKeys.push(k); }); });
+  const ord = k => { const i = (d.modeles || []).findIndex(m=>m.cle===k); return i<0 ? 999 : i; };
+  typeKeys.sort((a,b)=>ord(a)-ord(b));
+  const secs = [];
+  ['general'].concat(typeKeys).forEach(k=>{ const m = (d.modeles || []).find(x=>x.cle===k); if(m && (m.items || []).length) secs.push({key:k,titre:k==='general'?'Tous les chantiers':m.nom,items:m.items.map(it=>({id:it.id,texte:it.texte,cat:it.cat || ''}))}); });
+  const ex = [], seen = new Set();
+  ids.forEach(pid=>{ const cfg = (d.projets || []).find(x=>x.projetId===pid); ((cfg && cfg.extra) || []).forEach(it=>{ if(!it || !it.id || seen.has(it.id)) return; seen.add(it.id); ex.push({id:it.id,texte:it.texte,cat:it.cat || '',proj:(proj(pid)||{}).nomDossier || ''}); }); });
+  if(ex.length) secs.push({key:'extra',titre:'Machinerie et matériel des soumissions',items:ex});
+  return secs;
 }
-function depCoches(pid){
+function depCoches(){
   const m = new Map(); const d = S.dep || {coches:[]};
-  (d.coches || []).filter(c=>c.projetId===pid).forEach(c=>m.set(c.item,c.par || ''));
+  (d.coches || []).filter(c=>c.projetId==='*').forEach(c=>m.set(c.item,c.par || ''));
   for(const o of mine()){
-    if(o.fn==='terrain_depart_cocher' && o.args.p_projet===pid){ if(o.args.p_fait) m.set(o.args.p_item,S.user.nom); else m.delete(o.args.p_item); }
+    if(o.fn==='terrain_depart_cocher' && o.args.p_projet==='*'){ if(o.args.p_fait) m.set(o.args.p_item,S.user.nom); else m.delete(o.args.p_item); }
   }
   return m;
 }
 function viewDepart(){
-  const d = S.dep, hdr = '<h1 class="big" style="margin-bottom:4px">Départ</h1><p class="note" style="margin:0 0 14px">Avant de partir: on s\'assure d\'avoir tout.</p>';
+  const d = S.dep, hdr = '<h1 class="big" style="margin-bottom:4px">Départ</h1><p class="note" style="margin:0 0 14px">Listes selon les travaux prévus aujourd\'hui.</p>';
   if(!d) return hdr+'<div class="empty">Chargement des listes…<br><button class="btn ghost" style="margin-top:12px" data-act="depreload">Réessayer</button></div>';
-  const {today,extra} = depProjets(), ids = today.concat(extra);
+  const ids = depProjets();
   let h = hdr;
-  if(!ids.length) h += '<div class="empty">Aucun projet à l\'agenda aujourd\'hui. Ajoute un projet ci-dessous.</div>';
-  h += ids.map(pid=>{
-    const p = proj(pid), items = depItems(pid), co = depCoches(pid), n = items.filter(i=>co.has(i.id)).length;
-    const open = S.depOpen[pid] !== false;
-    const cats = DEP_CATS.map(c=>({c,l:items.filter(i=>i.cat===c)})).filter(x=>x.l.length);
-    const body = open ? cats.map(x=>`<div class="eyebrow" style="margin:14px 0 2px">${esc(x.c)}</div><div class="card">`+x.l.map(i=>{
-      const par = co.get(i.id), on = co.has(i.id);
-      return `<label class="ck${on?' done':''}"><input type="checkbox" data-act="depck" data-p="${esc(pid)}" data-id="${esc(i.id)}"${on?' checked':''}><span><b>${esc(i.texte)}</b>${i.src==='projet'?'<small>Selon la soumission</small>':''}${on && par ? `<small>Chargé par ${esc(par)}</small>` : ''}</span></label>`;
-    }).join('')+'</div>').join('') : '';
-    const done = items.length && n===items.length;
-    return `<section style="margin-top:18px"><button class="row" style="padding:10px 0" data-act="depfold" data-p="${esc(pid)}"><span class="l"><b>${esc(p.nomDossier)}</b><small>${esc(p.adresse || '')}</small></span><span class="r" style="color:${done?'var(--accent)':'inherit'}">${done?'✓ ':''}${n}/${items.length}</span></button>${body}</section>`;
+  if(ids.length) h += '<div class="pnote" style="margin-bottom:6px"><b>Aujourd\'hui</b>'+ids.map(pid=>`<p>${esc((proj(pid)||{}).nomDossier || '')}</p>`).join('')+'</div>';
+  else h += '<div class="empty">Aucun projet à l\'agenda aujourd\'hui. Ajoute un projet ci-dessous.</div>';
+  const co = depCoches();
+  h += depSections(ids).map(sec=>{
+    const n = sec.items.filter(i=>co.has(i.id)).length, done = n===sec.items.length;
+    const open = S.depOpen[sec.key] !== false;
+    const body = open ? '<div class="card">'+sec.items.map(i=>{
+      const on = co.has(i.id), par = co.get(i.id);
+      return `<label class="ck${on?' done':''}"><input type="checkbox" data-act="depck" data-id="${esc(i.id)}"${on?' checked':''}><span><b>${esc(i.texte)}</b>${i.proj?`<small>${esc(i.proj)}</small>`:(i.cat?`<small>${esc(i.cat)}</small>`:'')}${on && par ? `<small>Chargé par ${esc(par)}</small>` : ''}</span></label>`;
+    }).join('')+'</div>' : '';
+    return `<section style="margin-top:18px"><button class="row" style="padding:10px 0" data-act="depfold" data-p="${esc(sec.key)}"><span class="l"><b>${esc(sec.titre)}</b></span><span class="r" style="color:${done?'var(--accent)':'inherit'}">${done?'✓ ':''}${n}/${sec.items.length}</span></button>${body}</section>`;
   }).join('');
   const others = S.projets.filter(p=>!ids.includes(p.id));
   if(others.length) h += `<div class="field" style="margin-top:22px"><label for="depAddSel">Ajouter un autre projet</label><select id="depAddSel" class="ctl" data-act="depadd"><option value="">Choisir…</option>${others.map(p=>`<option value="${esc(p.id)}">${esc(p.nomDossier)}</option>`).join('')}</select></div>`;
@@ -325,15 +330,29 @@ function viewPunch(){
     ${S.projets.length ? '' : '<div class="empty">Aucun projet actif pour l\'instant. Demande à Francis d\'en ajouter.</div>'}
     <div class="dock"><button class="punch go" data-act="in"${S.projets.length?'':' disabled'}>Punch IN</button></div>`;
 }
-function viewProjets(){
-  if(!S.projets.length) return '<h1 class="big" style="margin-bottom:14px">Mes projets</h1><div class="empty">Aucun projet actif pour l\'instant.</div>';
-  const list = S.projets.map(p=>({p,ev:nextEv(p.id)})).sort((x,y)=> x.ev&&y.ev ? (x.ev.debut<y.ev.debut?-1:x.ev.debut>y.ev.debut?1:0) : x.ev ? -1 : y.ev ? 1 : x.p.nomDossier.localeCompare(y.p.nomDossier));
-  return `<h1 class="big" style="margin-bottom:14px">Mes projets</h1>`+list.map(({p,ev})=>{
-    const d = p.checklist.filter(i=>i.done).length;
-    const n = nbPhotos(p);
-    return `<button class="pcard" data-act="open" data-id="${esc(p.id)}"><h3>${esc(p.nomDossier)}</h3><div class="addr">${esc(p.adresse || '')}</div>
+function pcardHtml(p,ev){
+  const d = p.checklist.filter(i=>i.done).length, n = nbPhotos(p);
+  return `<button class="pcard" data-act="open" data-id="${esc(p.id)}"><h3>${esc(p.nomDossier)}</h3><div class="addr">${esc(p.adresse || '')}</div>
     <div class="meta">${ev ? `<span class="chip"><span class="eqdot ${eqCls(ev)}" style="margin-right:6px"></span>${esc(rangeLbl(ev))}</span>` : '<span class="chip warn">Pas à l\'agenda</span>'}<span>Liste ${d}/${p.checklist.length}</span><span>${n} photo${n>1?'s':''}</span></div></button>`;
-  }).join('');
+}
+function viewProjets(){
+  const h1 = '<h1 class="big" style="margin-bottom:14px">Projets</h1>';
+  if(!S.projets.length) return h1+'<div class="empty">Aucun projet actif pour l\'instant.</div>';
+  const t = todayS();
+  const all = S.projets.map(p=>({p,ev:nextEv(p.id)}));
+  const sched = all.filter(x=>x.ev).sort((x,y)=> x.ev.debut<y.ev.debut?-1:x.ev.debut>y.ev.debut?1:x.p.nomDossier.localeCompare(y.p.nomDossier));
+  const others = all.filter(x=>!x.ev).sort((x,y)=>x.p.nomDossier.localeCompare(y.p.nomDossier));
+  const now = sched.filter(x=>x.ev.debut<=t), next = sched.filter(x=>x.ev.debut>t);
+  let h = h1;
+  if(!sched.length) h += '<div class="empty">Aucun projet à l\'horaire pour l\'instant.</div>';
+  if(now.length) h += '<div class="eyebrow" style="margin:6px 0 8px">En cours</div>'+now.map(x=>pcardHtml(x.p,x.ev)).join('');
+  if(next.length) h += '<div class="eyebrow" style="margin:16px 0 8px">À venir</div>'+next.map(x=>pcardHtml(x.p,x.ev)).join('');
+  if(others.length){
+    const open = !!S.othersOpen;
+    h += `<button class="row" style="margin-top:18px;padding:12px 0" data-act="othfold"><span class="l"><b>Pas à l'horaire (${others.length})</b></span><span class="r">${open?'▴':'▾'}</span></button>`;
+    if(open) h += others.map(x=>pcardHtml(x.p,null)).join('');
+  }
+  return h;
 }
 /* ---------- Agenda ---------- */
 const addDays = (ds,n) => iso(new Date(new Date(ds+'T12:00:00').getTime()+n*86400000));
@@ -446,27 +465,37 @@ function viewProjet(){
     ${p.notes ? `<div class="pnote"><span class="lbl">Notes</span><p>${esc(p.notes)}</p></div>` : ''}
     <div class="seg" style="grid-template-columns:repeat(${tabs.length},1fr)!important">${tabs.map(t=>`<button class="${S.sub===t[0]?'on':''}" data-act="sub" data-sub="${t[0]}">${t[1]}</button>`).join('')}</div>${body}`;
 }
+const hm2 = h => { const m = Math.round((Number(h)||0)*60); return Math.floor(m/60)+':'+String(m%60).padStart(2,'0'); };
 function viewMoi(){
   const d0 = new Date(); const dow = (d0.getDay()+6)%7;
   const mon = new Date(d0); mon.setDate(d0.getDate()-dow+S.wk*7);
   const days = [];
   for(let i=0;i<7;i++){ const d = new Date(mon); d.setDate(mon.getDate()+i); days.push(iso(d)); }
-  const wk = S.heures.filter(h=>days.includes(h.date));
-  const tot = wk.reduce((a,h)=>a+Number(h.heures),0) + (S.open && S.wk===0 ? workMs(S.open,nowMs())/3600000 : 0);
-  const limit = iso(new Date(Date.now()-EDIT_DAYS*86400000));
-  const blocks = days.slice().reverse().map(ds=>{
-    const hs = wk.filter(h=>h.date===ds); if(!hs.length) return '';
-    const dt = hs.reduce((a,h)=>a+Number(h.heures),0);
-    return `<div class="dayh"><span>${esc(dayLabel(ds))}</span><span class="num">${fmtDur(dt)}</span></div><div class="card">`
-      +hs.map(h=>heureRow(h, ds>=limit)).join('')+'</div>';
+  const today = todayS(), limit = iso(new Date(Date.now()-EDIT_DAYS*86400000));
+  const live = (S.open && S.wk===0) ? workMs(S.open,nowMs())/3600000 : 0;
+  let cum = 0, otTot = 0, tot = 0;
+  const rows = days.map(ds=>{
+    const hs = S.heures.filter(h=>h.date===ds).sort((a,b)=>String(a.debut).localeCompare(String(b.debut)));
+    const t = hs.reduce((a,h)=>a+Number(h.heures),0) + (ds===today ? live : 0);
+    const reg = Math.max(0, Math.min(t, 40-cum)), ot = t-reg; cum += t; otTot += ot; tot += t;
+    const lbl = cap(new Date(ds+'T12:00:00').toLocaleDateString('fr-CA',{weekday:'short',day:'numeric',month:'short'}).replace('.',''));
+    const c = v => v>0 ? hm2(v) : '---';
+    const open = !!S.tcOpen[ds];
+    let det = '';
+    if(open){
+      det = '<tr class="tcd"><td colspan="4">'+hs.map(h=>heureRow(h, ds>=limit)).join('')
+        +(ds===today && live>0 ? `<div class="row"><div class="l"><b>Punch en cours</b></div><div class="r num">${hm2(live)}</div></div>` : '')
+        +(ds>=limit && ds<=today ? `<button class="btn ghost" style="width:100%;margin:8px 0;height:44px" data-act="hsnew" data-d="${ds}">+ Ajouter une entrée</button>` : '')+'</td></tr>';
+    }
+    return `<tr class="tcr${ds===today?' tdy':''}${t>0?'':' emp'}" data-act="tcfold" data-d="${ds}"><td class="dt"><span class="pl">${open?'−':'+'}</span>${esc(lbl)}</td><td>${c(reg)}</td><td>${c(ot)}</td><td class="tt">${c(t)}</td></tr>`+det;
   }).join('');
   const nav = `<div class="wknav"><button data-act="wk" data-d="-1" aria-label="Semaine précédente"${S.wk<=-2?' disabled':''}>‹</button><span class="eyebrow">${S.wk===0?'Cette semaine':'Semaine du '+mon.toLocaleDateString('fr-CA',{day:'numeric',month:'long'})}</span><button data-act="wk" data-d="1" aria-label="Semaine suivante"${S.wk>=0?' disabled':''}>›</button></div>`;
   return `${nav}
-    <div class="total"><b class="num">${fmtDur(tot)}</b><span class="lbl">Total</span></div>
-    <button class="btn ghost" style="width:100%;margin-top:14px;height:48px" data-act="hsnew">+ Ajouter une entrée oubliée</button>
-    ${blocks || '<div class="empty">Aucune heure cette semaine.</div>'}
-    <p class="note">Touche une entrée des ${EDIT_DAYS} derniers jours pour la corriger.</p>
-    <button class="btn ghost" style="width:100%;margin-top:18px" data-act="refresh">Actualiser</button>
+    <div class="card tcard"><div class="tchead"><b>${esc((S.user && S.user.nom) || '')}</b><div class="tbig">${hm2(tot)}</div></div>
+    <table class="tctable"><thead><tr><th>Date</th><th>Reg</th><th>OT</th><th>Total</th></tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><th>Total</th><td>${otTot>0 ? hm2(tot-otTot) : hm2(tot)}</td><td>${otTot>0 ? hm2(otTot) : '---'}</td><td class="tt">${hm2(tot)}</td></tr></tfoot></table></div>
+    <p class="note">Touche un jour pour voir, corriger (${EDIT_DAYS} derniers jours) ou ajouter une entrée. OT = au-delà de 40 h.</p>
+    <button class="btn ghost" style="width:100%;margin-top:14px" data-act="refresh">Actualiser</button>
     <button class="btn ghost" style="width:100%;margin-top:10px" data-act="logout">Se déconnecter</button>
     <div class="foot">ADS Terrain v${VERSION}</div>`;
 }
@@ -645,9 +674,11 @@ document.addEventListener('click', async e => {
     const tk = S.token; sessionLost(); if(tk) rpc('terrain_logout',{p_token:tk}).catch(()=>{}); return;
   }
   if(a==='tab'){ S.tab=t.dataset.tab; S.pid=null; render(); $('#view').scrollTop=0; if(S.tab==='depart') loadDepart(); return; }
+  if(a==='tcfold'){ S.tcOpen[t.dataset.d] = !S.tcOpen[t.dataset.d]; render(); return; }
+  if(a==='othfold'){ S.othersOpen = !S.othersOpen; render(); return; }
   if(a==='depreload'){ loadDepart(); return; }
   if(a==='depfold'){ S.depOpen[t.dataset.p] = S.depOpen[t.dataset.p]===false; render(); return; }
-  if(a==='depck'){ await queue('terrain_depart_cocher',{p_projet:t.dataset.p,p_item:t.dataset.id,p_fait:t.checked,p_jour:todayS()}); render(); return; }
+  if(a==='depck'){ await queue('terrain_depart_cocher',{p_projet:'*',p_item:t.dataset.id,p_fait:t.checked,p_jour:todayS()}); render(); return; }
   if(a==='wk'){ S.wk = Math.max(-2,Math.min(0,S.wk+Number(t.dataset.d))); render(); return; }
   if(a==='agday'){ S.agDay = t.dataset.d; render(); const el = $('#agDetail'); if(el) el.scrollIntoView({behavior:'smooth',block:'end'}); return; }
   if(a==='agnav'){ const d = new Date(+S.agM.slice(0,4), +S.agM.slice(5,7)-1+Number(t.dataset.d), 1); S.agM = iso(d).slice(0,7); S.agDay = iso(d); render(); return; }
@@ -695,7 +726,7 @@ document.addEventListener('click', async e => {
     return;
   }
   if(a==='hsnew'){
-    S.hs = {id:null,projet:S.pick || (S.projets[0] && S.projets[0].id) || '',jour:iso(new Date()),debut:'07:00',fin:'16:00',pause:30,notes:''};
+    S.hs = {id:null,projet:S.pick || (S.projets[0] && S.projets[0].id) || '',jour:t.dataset.d || iso(new Date()),debut:'07:00',fin:'16:00',pause:30,notes:''};
     S.sheet='hs'; renderOverlay(true); return;
   }
   if(a==='hsedit'){
