@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '2.8';
+const VERSION = '2.9';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -408,9 +408,9 @@ function viewProjet(){
       +`<div class="addrow"><input id="ckIn" placeholder="Ajouter un item" value="${esc(S.ckDraft)}"><button class="btn" data-act="ckadd" aria-label="Ajouter">+</button></div>`;
   } else if(S.sub==='files'){
     const fl = p.fichiers || [];
-    body = (p.driveUrl ? `<a class="btn drive" href="${esc(p.driveUrl)}" target="_blank" rel="noopener">Ouvrir le dossier dans Google Drive</a>` : '')
+    body = (p.driveUrl ? `<a class="btn drive" href="${esc(p.driveUrl)}" target="_blank" rel="noopener">Ouvrir le dossier du projet (OneDrive)</a>` : '')
       + (fl.length ? '<div class="card files">'+fl.map(f=>`<a class="frow" href="${esc(f.url)}" target="_blank" rel="noopener">${fileBadge(f)}<span class="fn"><b>${esc(f.nom)}</b><small>${[f.modifie ? new Date(f.modifie).toLocaleDateString('fr-CA',{day:'numeric',month:'short',year:'numeric'}) : '', f.taille ? fmtSize(f.taille) : ''].filter(Boolean).join(' · ')}</small></span><span class="go">›</span></a>`).join('')+'</div>' : '<div class="empty">Aucun fichier pour ce projet.</div>')
-      + '<p class="note">Les fichiers s\'ouvrent dans Google Drive.</p>';
+      + '<p class="note">Les fichiers s\'ouvrent dans OneDrive (connexion requise).</p>';
   } else if(S.sub==='mach'){
     const rows = machOf(p.id), t0 = iso(new Date(nowMs()));
     const sel = S.mSel || MACHINES[0];
