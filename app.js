@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.4';
+const VERSION = '3.5';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -511,6 +511,62 @@ function viewMoi(){
     <div class="foot">ADS Terrain v${VERSION}</div>`;
 }
 
+/* ---------- Calculateur de vrac ---------- */
+const VRAC_MATS = [
+  {id:'p034', nom:'Pierre concassée 0-3/4"', f:1.4},
+  {id:'pn34', nom:'Pierre nette 3/4"', f:1.21},
+  {id:'sable', nom:'Sable', f:1.35},
+  {id:'terre', nom:'Terre', f:1.1}
+];
+function vrNum(v){ return parseFloat(String(v == null ? '' : v).replace(',', '.')) || 0; }
+function vrNew(){ return {id: 'r' + Math.random().toString(36).slice(2, 8), mat: 'p034', L: '', W: '', E: ''}; }
+function vrState(){ if(!S.vrac) S.vrac = {perte: 10, cam: 5, rows: [vrNew()]}; return S.vrac; }
+function vrCalc(r){
+  const v = vrState(), m = VRAC_MATS.find(x => x.id === r.mat) || VRAC_MATS[0];
+  const enPlace = vrNum(r.L) * vrNum(r.W) * (vrNum(r.E) / 12) / 27;
+  const verges = enPlace * (1 + vrNum(v.perte) / 100);
+  return {m, enPlace, verges, tonnes: verges * m.f};
+}
+const vrFmt = n => n.toLocaleString('fr-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+function vrSummary(){
+  const v = vrState(), cam = vrNum(v.cam) || 5, by = {};
+  v.rows.forEach(r => { const c = vrCalc(r); if(c.verges <= 0) return; const b = by[c.m.id] || (by[c.m.id] = {m: c.m, verges: 0, tonnes: 0}); b.verges += c.verges; b.tonnes += c.tonnes; });
+  const list = Object.values(by);
+  if(!list.length) return '<div class="empty" style="padding:14px 0">Entre les dimensions pour voir les quantités.</div>';
+  return list.map(b => `<div class="row"><div class="l"><b>${esc(b.m.nom)}</b></div><div class="r num">${vrFmt(b.verges)} vg³${b.m.id === 'terre' ? '' : ' · ' + vrFmt(b.tonnes) + ' t'}</div></div>`).join('')
+    + list.filter(b => b.m.id !== 'terre').map(b => `<div class="row"><div class="l"><b>Voyages (${esc(b.m.nom)})</b><small>camion de ${vrFmt(cam).replace(',00','')} t</small></div><div class="r num">${Math.ceil(b.tonnes / cam - 1e-9)}</div></div>`).join('');
+}
+function vrUpdate(){
+  const v = vrState();
+  v.rows.forEach(r => { const c = vrCalc(r), el = document.getElementById('vr-r-' + r.id); if(el) el.innerHTML = c.verges > 0 ? `<b>${vrFmt(c.verges)} vg³</b>${c.m.id === 'terre' ? '' : ' · <b>' + vrFmt(c.tonnes) + ' t</b>'}` : '<span style="color:var(--muted)">—</span>'; });
+  const s = document.getElementById('vr-sum'); if(s) s.innerHTML = vrSummary();
+}
+function viewVrac(){
+  const v = vrState();
+  const rows = v.rows.map((r, i) => `<div class="card vrc" style="margin-top:12px;padding:12px 14px">
+    <div style="display:flex;gap:8px;align-items:center"><select class="ctl" data-vr="mat" data-id="${r.id}">${VRAC_MATS.map(m => `<option value="${m.id}"${m.id === r.mat ? ' selected' : ''}>${esc(m.nom)}</option>`).join('')}</select>${v.rows.length > 1 ? `<button class="btn ghost" style="width:48px;height:48px;flex:none;padding:0" data-act="vrdel" data-id="${r.id}" aria-label="Retirer">✕</button>` : ''}</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">
+      ${[['L','Long. (pi)'], ['W','Larg. (pi)'], ['E','Épais. (po)']].map(([k, lab]) => `<div class="field"><label>${lab}</label><input class="ctl" type="text" inputmode="decimal" data-vr="${k}" data-id="${r.id}" value="${esc(String(r[k]))}" style="font-size:18px"></div>`).join('')}
+    </div>
+    <div style="margin-top:10px;font-size:17px" id="vr-r-${r.id}"></div></div>`).join('');
+  return `<h1 class="big">Calculateur de vrac</h1>
+    ${rows}
+    <button class="btn ghost" style="width:100%;margin-top:12px" data-act="vradd">+ Ajouter une zone</button>
+    <div class="card" style="margin-top:16px"><div id="vr-sum">${vrSummary()}</div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px">
+      <div class="field"><label>Perte / compaction (%)</label><input class="ctl" type="text" inputmode="decimal" data-vr="perte" value="${esc(String(v.perte))}"></div>
+      <div class="field"><label>Camion (tonnes)</label><input class="ctl" type="text" inputmode="decimal" data-vr="cam" value="${esc(String(v.cam))}"></div>
+    </div>
+    <p class="note">Verges³ = long. × larg. × épais. ÷ 12 ÷ 27, plus la perte. Tonnes : pierre 0-3/4" 1,4 t/vg³, pierre nette 1,21, sable 1,35. La terre se commande à la verge.</p>`;
+}
+document.addEventListener('input', e => {
+  const t = e.target, k = t && t.dataset && t.dataset.vr; if(!k) return;
+  const v = vrState();
+  if(k === 'perte' || k === 'cam') v[k] = t.value; else { const r = v.rows.find(x => x.id === t.dataset.id); if(r) r[k] = t.value; }
+  vrUpdate();
+});
+document.addEventListener('change', e => { const t = e.target; if(t && t.dataset && t.dataset.vr === 'mat'){ const r = vrState().rows.find(x => x.id === t.dataset.id); if(r){ r.mat = t.value; vrUpdate(); } } });
+
 /* ---------- Rendu ---------- */
 function render(){
   $('#loading').hidden = !S.loading;
@@ -524,8 +580,9 @@ function render(){
   $('#roleLbl').textContent = S.user.role === 'admin' ? 'Administrateur' : 'Employé';
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on', b.dataset.tab===S.tab));
   const v = $('#view'); const st = v.scrollTop;
-  v.innerHTML = S.pid ? viewProjet() : S.tab==='punch' ? viewPunch() : S.tab==='agenda' ? viewAgenda() : S.tab==='projets' ? viewProjets() : S.tab==='depart' ? viewDepart() : viewMoi();
+  v.innerHTML = S.pid ? viewProjet() : S.tab==='punch' ? viewPunch() : S.tab==='agenda' ? viewAgenda() : S.tab==='projets' ? viewProjets() : S.tab==='depart' ? viewDepart() : S.tab==='vrac' ? viewVrac() : viewMoi();
   v.scrollTop = st;
+  if(S.tab==='vrac' && !S.pid) vrUpdate();
   renderOverlay(false); tick(); updSync();
 }
 /* Rendu "doux": ne casse pas un champ en cours de saisie quand une synchro se termine en arrière-plan */
@@ -684,6 +741,8 @@ document.addEventListener('click', async e => {
     if(n && !confirm(n+' élément'+(n>1?'s':'')+' pas encore envoyé'+(n>1?'s':'')+'. Ils partiront à ta prochaine connexion. Se déconnecter quand même?')) return;
     const tk = S.token; sessionLost(); if(tk) rpc('terrain_logout',{p_token:tk}).catch(()=>{}); return;
   }
+  if(a==='vradd'){ vrState().rows.push(vrNew()); render(); return; }
+  if(a==='vrdel'){ const v = vrState(); v.rows = v.rows.filter(x => x.id !== t.dataset.id); if(!v.rows.length) v.rows.push(vrNew()); render(); return; }
   if(a==='tab'){ S.tab=t.dataset.tab; S.pid=null; render(); $('#view').scrollTop=0; if(S.tab==='depart') loadDepart(); return; }
   if(a==='tcfold'){ S.tcOpen[t.dataset.d] = !S.tcOpen[t.dataset.d]; render(); return; }
   if(a==='othfold'){ S.othersOpen = !S.othersOpen; render(); return; }
