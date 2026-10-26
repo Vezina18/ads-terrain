@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.6';
+const VERSION = '3.7';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -457,8 +457,8 @@ function viewProjet(){
         }).join('')+'</div>' : '<div class="empty">Aucune machine notée pour ce projet.</div>');
   } else if(S.sub==='photos'){
     const gal = phs.filter(f=>!f.journalId);
-    body = `<button class="cam" data-act="shoot">${camSvg}Prendre une photo</button>`
-      +(gal.length ? `<div class="grid">${gal.map(f=>`<button data-act="zoom" data-id="${esc(f.id)}"><img src="${f.mini}" alt="Photo du chantier">${f.wait?'<span class="tag wait pin">À envoyer</span>':''}</button>`).join('')}</div>` : '<div class="empty">Aucune photo pour l\'instant. Prends la première au début du chantier.</div>');
+    body = `<button class="cam" data-act="shoot">${camSvg}Prendre une photo</button><button class="cam" data-act="shootf" style="margin-top:8px">${camSvg}Photo d'une facture</button>`
+      +(gal.length ? `<div class="grid">${gal.map(f=>`<button data-act="zoom" data-id="${esc(f.id)}"><img src="${f.mini}" alt="${String(f.id).startsWith('pf')?'Facture':'Photo du chantier'}">${String(f.id).startsWith('pf')?'<span class="tag pin" style="top:4px;bottom:auto">Facture</span>':''}${f.wait?'<span class="tag wait pin">À envoyer</span>':''}</button>`).join('')}</div>` : '<div class="empty">Aucune photo pour l\'instant. Prends la première au début du chantier.</div>');
   } else {
     body = `<textarea id="jIn" placeholder="Avancement, problème, question...">${esc(S.jDraft)}</textarea>`
       +(S.jPhoto ? `<div class="pending-img"><img src="${S.jPhoto.mini}" alt="Photo jointe"></div>` : '')
@@ -688,11 +688,12 @@ document.addEventListener('change', e => { const t = e.target; if(t && t.id==='d
 $('#photoIn').addEventListener('change', async e => {
   const f = e.target.files && e.target.files[0]; e.target.value = ''; if(!f) return;
   let pair;
-  try{ pair = await shrink(f,[[1280,.8],[320,.7]]); }catch(err){ toast('La photo n\'a pas pu être lue. Réessaie.'); return; }
+  const isF = S.photoFor === 'facture';
+  try{ pair = await shrink(f,isF ? [[1800,.85],[320,.7]] : [[1280,.8],[320,.7]]); }catch(err){ toast('La photo n\'a pas pu être lue. Réessaie.'); return; }
   const [src,mini] = pair; const p = proj(S.pid); if(!p) return;
   if(S.photoFor === 'journal'){ S.jPhoto = {src,mini}; render(); return; }
-  await queue('terrain_photo_add',{p_projet:p.id,p_id:'p'+uid(),p_mini:mini,p_src:src});
-  toast(navigator.onLine === false ? 'Photo gardée. Elle partira avec le réseau.' : 'Photo enregistrée.');
+  await queue('terrain_photo_add',{p_projet:p.id,p_id:(isF?'pf':'p')+uid(),p_mini:mini,p_src:src});
+  toast(navigator.onLine === false ? (isF?'Facture gardée. Elle partira avec le réseau.':'Photo gardée. Elle partira avec le réseau.') : (isF?'Facture enregistrée.':'Photo enregistrée.'));
   render();
 });
 
@@ -865,6 +866,7 @@ document.addEventListener('click', async e => {
     await queue('terrain_machine_delete',{p_id:t.dataset.id}); render(); return;
   }
   if(a==='shoot'){ S.photoFor='gallery'; $('#photoIn').click(); return; }
+  if(a==='shootf'){ S.photoFor='facture'; toast('Mets la facture à plat, bien éclairée, avec le total visible.'); $('#photoIn').click(); return; }
   if(a==='jshoot'){ S.photoFor='journal'; $('#photoIn').click(); return; }
   if(a==='jadd' && p){
     const v = S.jDraft.trim(); if(!v && !S.jPhoto) return;
