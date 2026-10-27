@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.7';
+const VERSION = '3.8';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
