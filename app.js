@@ -2,7 +2,7 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '3.8';
+const VERSION = '3.9';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
@@ -103,8 +103,17 @@ const hasOp = (fn,key,val) => mine().some(o=>o.fn===fn && o.args[key]===val);
 /* ---------- État ---------- */
 const S = {token:lsGet(TOKEN_KEY) || ssGet(TOKEN_KEY),user:null,tab:'punch',projets:[],agenda:[],agM:iso(new Date()).slice(0,7),agDay:iso(new Date()),heures:[],open:null,skew:0,pid:null,sub:'check',
   pick:null,mach:{},mSel:'',jDraft:'',jPhoto:null,ckDraft:'',sheet:false,pause:30,note:'',endT:'',lb:null,photos:{},photoFor:'gallery',wk:0,hs:null,
-  loading:true,bootErr:null,syncing:false,dirty:false,reg:null,dep:null,depAdd:[],depOpen:{},tcOpen:{},othersOpen:false};
+  loading:true,bootErr:null,syncing:false,dirty:false,reg:null,dep:null,depAdd:[],depOpen:{},tcOpen:{},othersOpen:true,pq:''};
 const proj = id => S.projets.find(p=>p.id===id);
+/* Nom sans accents ni numéro de dossier, pour rapprocher un événement d'agenda d'un projet */
+const normN = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/^\s*\d+\s*-\s*/,'').replace(/[^a-z0-9]+/g,' ').trim();
+/* Projet lié à un événement: le lien direct, sinon un rapprochement par le nom (ex.: « C3k - Tristan Bouillet » = « 26098 - C3K - Tristan Bouillet ») */
+function evPid(e){
+  if(e.projetId && proj(e.projetId)) return e.projetId;
+  const t = normN(e.titre); if(t.length < 8) return null;
+  const hit = S.projets.find(p => { const n = normN(p.nomDossier); return n === t || n.includes(t) || t.includes(n); });
+  return hit ? hit.id : null;
+}
 const projName = id => { const p = proj(id); return p ? p.nomDossier : 'Sans projet'; };
 const nowMs = () => Date.now() + S.skew;
 const pauseTot = (o,at) => (o.pauseMs||0) + (o.pauseStart ? Math.max(0,at-o.pauseStart) : 0);
@@ -146,7 +155,7 @@ async function loadDepart(){
 }
 function depProjets(){
   const t = todayS();
-  const ids = []; S.agenda.forEach(e=>{ if(e.projetId && e.debut<=t && t<e.fin && proj(e.projetId) && !ids.includes(e.projetId)) ids.push(e.projetId); });
+  const ids = []; S.agenda.forEach(e=>{ const pid = evPid(e); if(pid && e.debut<=t && t<e.fin && !ids.includes(pid)) ids.push(pid); });
   S.depAdd.forEach(i=>{ if(proj(i) && !ids.includes(i)) ids.push(i); });
   return ids;
 }
@@ -346,15 +355,23 @@ function pcardHtml(p,ev){
   return `<button class="pcard" data-act="open" data-id="${esc(p.id)}"><h3>${esc(p.nomDossier)}</h3><div class="addr">${esc(p.adresse || '')}</div>
     <div class="meta">${ev ? `<span class="chip"><span class="eqdot ${eqCls(ev)}" style="margin-right:6px"></span>${esc(rangeLbl(ev))}</span>` : '<span class="chip warn">Pas à l\'agenda</span>'}<span>Liste ${d}/${p.checklist.length}</span><span>${n} photo${n>1?'s':''}</span></div></button>`;
 }
+const flat = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 function viewProjets(){
   const h1 = '<h1 class="big" style="margin-bottom:14px">Projets</h1>';
   if(!S.projets.length) return h1+'<div class="empty">Aucun projet actif pour l\'instant.</div>';
-  const t = todayS();
+  return h1+`<input id="pqIn" class="ctl" type="search" placeholder="Chercher un projet (nom, numéro, adresse)" value="${esc(S.pq || '')}" autocomplete="off" style="margin-bottom:14px"><div id="plist">${projetsListHtml()}</div>`;
+}
+function projetsListHtml(){
+  const t = todayS(), q = flat(S.pq).trim();
   const all = S.projets.map(p=>({p,ev:nextEv(p.id)}));
+  if(q){
+    const r = all.filter(x=>flat(x.p.nomDossier+' '+(x.p.adresse || '')).includes(q)).sort((x,y)=>x.p.nomDossier.localeCompare(y.p.nomDossier));
+    return r.length ? r.map(x=>pcardHtml(x.p,x.ev)).join('') : '<div class="empty">Aucun projet ne correspond.</div>';
+  }
   const sched = all.filter(x=>x.ev).sort((x,y)=> x.ev.debut<y.ev.debut?-1:x.ev.debut>y.ev.debut?1:x.p.nomDossier.localeCompare(y.p.nomDossier));
   const others = all.filter(x=>!x.ev).sort((x,y)=>x.p.nomDossier.localeCompare(y.p.nomDossier));
   const now = sched.filter(x=>x.ev.debut<=t), next = sched.filter(x=>x.ev.debut>t);
-  let h = h1;
+  let h = '';
   if(!sched.length) h += '<div class="empty">Aucun projet à l\'horaire pour l\'instant.</div>';
   if(now.length) h += '<div class="eyebrow" style="margin:6px 0 8px">En cours</div>'+now.map(x=>pcardHtml(x.p,x.ev)).join('');
   if(next.length) h += '<div class="eyebrow" style="margin:16px 0 8px">À venir</div>'+next.map(x=>pcardHtml(x.p,x.ev)).join('');
@@ -377,11 +394,12 @@ function rangeLbl(e){
 }
 const eqName = e => e.equipe === 'equipe2' ? 'Équipe 2' : e.equipe === 'equipe1' ? 'Équipe 1' : (e.equipe || '');
 const eqCls = e => e.equipe === 'equipe2' ? 'eq2' : 'eq1';
-function nextEv(pid){ const t = todayS(); return S.agenda.filter(e=>e.projetId===pid && e.fin > t).sort((a,b)=>a.debut<b.debut?-1:1)[0] || null; }
+function nextEv(pid){ const t = todayS(); return S.agenda.filter(e=>evPid(e)===pid && e.fin > t).sort((a,b)=>a.debut<b.debut?-1:1)[0] || null; }
 function evCard(e){
   const t = todayS(), now = e.debut <= t && t < e.fin;
-  const body = `<span class="eqdot ${eqCls(e)}"></span><span class="evt"><b>${esc(e.titre)}</b><small>${esc(rangeLbl(e))} · ${esc(eqName(e))}${now ? ' · <i class="now">en cours</i>' : ''}</small></span>${e.projetId && proj(e.projetId) ? '<span class="go">›</span>' : ''}`;
-  return e.projetId && proj(e.projetId) ? `<button class="evc" data-act="open" data-id="${esc(e.projetId)}">${body}</button>` : `<div class="evc">${body}</div>`;
+  const pid = evPid(e);
+  const body = `<span class="eqdot ${eqCls(e)}"></span><span class="evt"><b>${esc(e.titre)}</b><small>${esc(rangeLbl(e))} · ${esc(eqName(e))}${now ? ' · <i class="now">en cours</i>' : ''}</small></span>${pid ? '<span class="go">›</span>' : ''}`;
+  return pid ? `<button class="evc" data-act="open" data-id="${esc(pid)}">${body}</button>` : `<div class="evc">${body}</div>`;
 }
 function viewAgenda(){
   const t = todayS(), Y = +S.agM.slice(0,4), M = +S.agM.slice(5,7);
@@ -700,6 +718,7 @@ $('#photoIn').addEventListener('change', async e => {
 /* ---------- Actions ---------- */
 document.addEventListener('input', e => {
   const id = e.target.id;
+  if(id==='pqIn'){ S.pq = e.target.value; const pl = $('#plist'); if(pl) pl.innerHTML = projetsListHtml(); }
   if(id==='jIn') S.jDraft = e.target.value;
   if(id==='ckIn') S.ckDraft = e.target.value;
   if(id==='noteIn') S.note = e.target.value;
