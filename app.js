@@ -2,14 +2,14 @@
 'use strict';
 
 /* ---------- Configuration (clé publique: faite pour être dans l'app) ---------- */
-const VERSION = '4.0';
+const VERSION = '4.1';
 const SUPA_URL = 'https://dcforgceifhnrplsydfk.supabase.co';
 const SUPA_KEY = 'sb_publishable_1Iojb5iodd5Rwn4Cgmhj3Q_2BI4wdMW';
 const TOKEN_KEY = 'ads-terrain-token';
 const LOGIN_KEY = 'ads-terrain-login';
 const SNAP_KEY = 'ads-terrain-snap';
 const STALE_H = 12;           // un punch ouvert plus longtemps que ça déclenche le rappel
-const EDIT_DAYS = 7;          // les heures peuvent être corrigées pendant 7 jours
+const EDIT_DAYS = 14;         // les heures peuvent être corrigées pendant 7 jours
 
 /* ---------- Outils ---------- */
 const $ = s => document.querySelector(s);
@@ -114,7 +114,7 @@ function evPid(e){
   const hit = S.projets.find(p => { const n = normN(p.nomDossier); return n === t || n.includes(t) || t.includes(n); });
   return hit ? hit.id : null;
 }
-const projName = id => { const p = proj(id); return p ? p.nomDossier : 'Sans projet'; };
+const projName = id => { const p = proj(id); return p ? p.nomDossier : 'Aucun projet'; };
 const nowMs = () => Date.now() + S.skew;
 const pauseTot = (o,at) => (o.pauseMs||0) + (o.pauseStart ? Math.max(0,at-o.pauseStart) : 0);
 const workMs = (o,at) => Math.max(0, at - o.start - pauseTot(o,at));
@@ -323,7 +323,7 @@ function heureRow(h,edit){
 function viewPunch(){
   const first = new Date();
   const todays = S.heures.filter(h=>h.date===iso(first));
-  const list = todays.length ? '<div class="card">'+todays.map(h=>heureRow(h,false)).join('')+'</div>' : '<div class="empty">Aucun punch terminé aujourd\'hui.</div>';
+  const list = todays.length ? '<div class="card">'+todays.map(h=>heureRow(h,true)).join('')+'</div>' : '<div class="empty">Aucun punch terminé aujourd\'hui.</div>';
   if(S.open){
     const o = S.open, p = proj(o.projetId), paused = !!o.pauseStart;
     const warn = stale(o) ? `<div class="alert"><b>Punch ouvert depuis ${fmtDur((nowMs()-o.start)/3600000)}</b>As-tu oublié de punch out? Appuie sur Punch OUT et mets l'heure à laquelle tu as vraiment fini.</div>` : '';
@@ -332,7 +332,7 @@ function viewPunch(){
       <span class="pulse">${paused ? 'En pause' : 'Au travail'}</span>
       <div class="clock" id="clock">00:00:00</div>
       <div class="since num" id="sub"></div>
-      <div class="proj">${esc(p ? p.nomDossier : '')}</div>
+      <div class="proj">${esc(p ? p.nomDossier : 'Aucun projet')}</div>
       <div class="since num">Punch depuis ${hm(new Date(o.start))}${iso(new Date(o.start))!==iso(first) ? ' ('+esc(dayLabel(iso(new Date(o.start))).toLowerCase())+')' : ''}</div>
       ${p ? mapLink(p.adresse) : ''}
       ${p ? `<button class="linkbtn" data-act="open" data-id="${esc(p.id)}">Voir le projet et ajouter une photo</button>` : ''}
@@ -341,14 +341,13 @@ function viewPunch(){
     <div class="dock">
       ${paused
         ? `<button class="punch pause" data-act="pauseend">Terminer la pause</button><button class="btn ghost wide" data-act="out">Punch OUT</button>`
-        : `<div class="two"><button class="btn ghost big2" data-act="pausego">Pause</button><button class="btn ghost big2" data-act="xfer"${S.projets.length>1?'':' disabled'}>Changer de projet</button></div><button class="punch stop" data-act="out">Punch OUT</button>`}
+        : `<div class="two"><button class="btn ghost big2" data-act="pausego">Pause</button><button class="btn ghost big2" data-act="xfer"${(S.projets.length>1 || (S.projets.length && !o.projetId))?'':' disabled'}>Changer de projet</button></div><button class="punch stop" data-act="out">Punch OUT</button>`}
     </div>`;
   }
   return `<p class="eyebrow">${longDate(first)}</p>
     <h1 class="big">Bonjour, ${esc((S.user.nom || '').split(' ')[0])}</h1>
     <div class="sec"><span class="lbl">Aujourd'hui <span class="num" style="float:right;text-transform:none;letter-spacing:0">${fmtDur(todayWorked())}</span></span>${list}</div>
-    ${S.projets.length ? '' : '<div class="empty">Aucun projet actif pour l\'instant. Demande à Francis d\'en ajouter.</div>'}
-    <div class="dock"><button class="punch go" data-act="in"${S.projets.length?'':' disabled'}>Punch IN</button></div>`;
+        <div class="dock"><button class="punch go" data-act="in">Punch IN</button><button class="btn ghost wide" data-act="hsnew" style="margin-top:8px">+ Ajouter ou corriger des heures</button></div>`;
 }
 function pcardHtml(p,ev,done){
   const d = p.checklist.filter(i=>i.done).length, n = nbPhotos(p), t = todayS();
@@ -634,7 +633,7 @@ function sheetPick(mode){
   return `<div class="veil" data-act="sheetclose"><div class="sheet" role="dialog" aria-label="Choisir le projet">
     <h2>${mode==='xfer' ? 'Changer de projet' : 'Sur quel projet?'}</h2>
     ${mode==='xfer' ? '<p class="note" style="margin:0">Ton temps sur le projet actuel est enregistré, et un nouveau punch commence maintenant sur celui que tu choisis.</p>' : ''}
-    <div class="plist">${list.map(p=>`<button class="pick" data-act="${mode==='xfer'?'xferp':'startp'}" data-id="${esc(p.id)}"><span><b>${esc(p.nomDossier)}</b><small>${esc(p.adresse || '')}</small></span></button>`).join('') || '<div class="empty">Aucun autre projet actif.</div>'}</div>
+    <div class="plist">${(mode==='xfer' ? (S.open && S.open.projetId) : true) ? `<button class="pick" data-act="${mode==='xfer'?'xferp':'startp'}" data-id=""><span><b>Aucun projet</b><small>Temps général (atelier, déplacement, etc.)</small></span></button>` : ''}${list.map(p=>`<button class="pick" data-act="${mode==='xfer'?'xferp':'startp'}" data-id="${esc(p.id)}"><span><b>${esc(p.nomDossier)}</b><small>${esc(p.adresse || '')}</small></span></button>`).join('')}</div>
     <button class="btn ghost" data-act="sheetclose">Annuler</button></div></div>`;
 }
 function sheetOut(){
@@ -655,7 +654,7 @@ function sheetHs(){
   if(h.jour && !dayOpts.includes(h.jour)) dayOpts.push(h.jour);
   return `<div class="veil" data-act="sheetclose"><div class="sheet" role="dialog" aria-label="Heures">
     <h2>${h.id ? 'Corriger les heures' : 'Ajouter des heures'}</h2>
-    <div class="field"><label for="hsP">Projet</label><select id="hsP" class="ctl">${projs.map(p=>`<option value="${esc(p.id)}"${p.id===h.projet?' selected':''}>${esc(p.nomDossier)}</option>`).join('')}</select></div>
+    <div class="field"><label for="hsP">Projet</label><select id="hsP" class="ctl"><option value=""${!h.projet?' selected':''}>Aucun projet</option>${projs.map(p=>`<option value="${esc(p.id)}"${p.id===h.projet?' selected':''}>${esc(p.nomDossier)}</option>`).join('')}</select></div>
     <div class="field"><label for="hsD">Jour</label><select id="hsD" class="ctl">${dayOpts.map(d=>`<option value="${d}"${d===h.jour?' selected':''}>${esc(dayLabel(d))}</option>`).join('')}</select></div>
     <div class="two"><div class="field"><label for="hsA">Début</label><input id="hsA" class="ctl" type="time" value="${esc(h.debut)}"></div><div class="field"><label for="hsB">Fin</label><input id="hsB" class="ctl" type="time" value="${esc(h.fin)}"></div></div>
     <div><span class="lbl">Pause prise</span><div class="chips" style="margin-top:8px">${[0,15,30,45,60].map(m=>`<button class="${h.pause===m?'on':''}" data-act="hspause" data-m="${m}">${m} min</button>`).join('')}</div></div>
@@ -792,11 +791,11 @@ document.addEventListener('click', async e => {
   if(a==='agnav'){ const d = new Date(+S.agM.slice(0,4), +S.agM.slice(5,7)-1+Number(t.dataset.d), 1); S.agM = iso(d).slice(0,7); S.agDay = iso(d); render(); return; }
   if(a==='agtoday'){ S.agM = todayS().slice(0,7); S.agDay = todayS(); render(); return; }
   if(a==='pick'){ S.pick=t.dataset.id; render(); return; }
-  if(a==='in'){ if(S.open || !S.projets.length) return; S.sheet='start'; renderOverlay(true); return; }
+  if(a==='in'){ if(S.open) return; S.sheet='start'; renderOverlay(true); return; }
   if(a==='startp'){
-    if(S.open) return; const id = t.dataset.id;
-    S.pick = id; S.open = {projetId:id,start:nowMs(),pauseMs:0,pauseStart:null}; S.sheet = false; renderOverlay(true); render();
-    await queue('terrain_punch_in',{p_projet:id,p_at:S.open.start}); return;
+    if(S.open) return; const id = t.dataset.id || '';
+    if(id) S.pick = id; S.open = {projetId:id,start:nowMs(),pauseMs:0,pauseStart:null}; S.sheet = false; renderOverlay(true); render();
+    await queue('terrain_punch_in',{p_projet:id || null,p_at:S.open.start}); return;
   }
   if(a==='pausego'){
     if(!S.open || S.open.pauseStart) return; S.open.pauseStart = nowMs(); persist(); render();
@@ -809,13 +808,13 @@ document.addEventListener('click', async e => {
   }
   if(a==='xfer'){ if(!S.open || S.open.pauseStart) return; S.sheet='xfer'; renderOverlay(true); return; }
   if(a==='xferp'){
-    if(!S.open) return; const o = S.open, n = nowMs(), id = t.dataset.id;
-    if(id === o.projetId) return;
+    if(!S.open) return; const o = S.open, n = nowMs(), id = t.dataset.id || '';
+    if(id === (o.projetId || '')) return;
     const h = segment(o,n,Math.round(pauseTot(o,n)/60000),null);
-    S.heures.push(h); S.pick = id; S.open = {projetId:id,start:n,pauseMs:0,pauseStart:null}; S.sheet=false; renderOverlay(true); render();
+    S.heures.push(h); if(id) S.pick = id; S.open = {projetId:id,start:n,pauseMs:0,pauseStart:null}; S.sheet=false; renderOverlay(true); render();
     toast('Projet changé. '+fmtDur(Number(h.heures))+' enregistrées sur le précédent.');
     await queue('terrain_punch_out',{p_id:h.id,p_pause:h.pause,p_notes:'',p_at:n});
-    await queue('terrain_punch_in',{p_projet:id,p_at:n});
+    await queue('terrain_punch_in',{p_projet:id || null,p_at:n});
     return;
   }
   if(a==='out'){
@@ -834,28 +833,27 @@ document.addEventListener('click', async e => {
     return;
   }
   if(a==='hsnew'){
-    S.hs = {id:null,projet:S.pick || (S.projets[0] && S.projets[0].id) || '',jour:t.dataset.d || iso(new Date()),debut:'07:00',fin:'16:00',pause:30,notes:''};
+    S.hs = {id:null,projet:'',jour:t.dataset.d || iso(new Date()),debut:'07:00',fin:'16:00',pause:30,notes:''};
     S.sheet='hs'; renderOverlay(true); return;
   }
   if(a==='hsedit'){
     const h = S.heures.find(x=>x.id===t.dataset.id); if(!h) return;
-    S.hs = {id:h.id,projet:h.projetId,jour:h.date,debut:h.debut,fin:h.fin,pause:Number(h.pause)||0,notes:h.notes||''};
+    S.hs = {id:h.id,projet:h.projetId || '',jour:h.date,debut:h.debut,fin:h.fin,pause:Number(h.pause)||0,notes:h.notes||''};
     S.sheet='hs'; renderOverlay(true); return;
   }
   if(a==='hspause'){ if(S.hs){ S.hs.pause = Number(t.dataset.m); renderOverlay(true); } return; }
   if(a==='hssave'){
     const h = S.hs; if(!h) return;
-    if(!h.projet){ toast('Choisis un projet.'); return; }
     if(!h.debut || !h.fin){ toast('Entre l\'heure de début et de fin.'); return; }
     if(h.debut === h.fin){ toast('Début et fin sont identiques.'); return; }
     const hrs = calcH(h.debut,h.fin,h.pause);
     const ex = h.id ? S.heures.find(x=>x.id===h.id) : null;
     const id = h.id || 'h'+uid();
-    const row = {id,date:h.jour,projetId:h.projet,debut:h.debut,fin:h.fin,pause:h.pause,heures:hrs,notes:h.notes.trim()||null,modifie:ex ? true : false,manuel:ex ? !!ex.manuel : true};
+    const row = {id,date:h.jour,projetId:h.projet || null,debut:h.debut,fin:h.fin,pause:h.pause,heures:hrs,notes:h.notes.trim()||null,modifie:ex ? true : false,manuel:ex ? !!ex.manuel : true};
     if(ex) Object.assign(ex,row); else S.heures.push(row);
     S.sheet=false; S.hs=null; renderOverlay(true); render();
     toast(ex ? 'Heures corrigées.' : 'Entrée ajoutée.');
-    await queue('terrain_heure_save',{p_id:id,p_projet:row.projetId,p_jour:row.date,p_debut:row.debut,p_fin:row.fin,p_pause:row.pause,p_notes:row.notes || ''});
+    await queue('terrain_heure_save',{p_id:id,p_projet:row.projetId || '',p_jour:row.date,p_debut:row.debut,p_fin:row.fin,p_pause:row.pause,p_notes:row.notes || ''});
     return;
   }
   if(a==='hsdel'){
